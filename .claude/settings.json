@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/pettachua/Desktop/only zines/march 22 reader fix/**)",
+      "Read(//Users/pettachua/Desktop/only zines/deploy march 22/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/pettachua/Desktop/only zines/march 22 reader fix"
+    ]
+  }
+}
