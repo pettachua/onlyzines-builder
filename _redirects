@@ -1,2 +1,3 @@
 # Proxy frame assets from R2 (same-origin for CSS mask-image CORS)
 /frames/*  https://pub-85eb104cefbe4699a7bc1bf320425c9d.r2.dev/frames/:splat  200
+/stickers/*  https://pub-85eb104cefbe4699a7bc1bf320425c9d.r2.dev/stickers/:splat  200
