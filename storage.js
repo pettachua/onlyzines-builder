@@ -1,5 +1,5 @@
 // ============ UTILITIES ============
-// Normalize asset URLs (passthrough Ã¢ÂÂ R2 pub URLs work directly)
+// Normalize asset URLs (passthrough ÃÂ¢ÃÂÃÂ R2 pub URLs work directly)
 function normalizeAssetUrl(url) {
   return url;
 }
@@ -96,14 +96,14 @@ async function _uploadImageToR2Inner(dataUrl) {
       if (!res || !res.ok) {
         console.error(`R2 upload failed (attempt ${attempt + 1}):`, res?.status);
         if (attempt < MAX_RETRIES) continue; // retry
-        updateSaveStatus('Ã¢ÂÂ  Image stored locally (cloud upload failed)');
+        updateSaveStatus('ÃÂ¢ÃÂÃÂ  Image stored locally (cloud upload failed)');
         return dataUrl;
       }
       const data = await res.json();
       if (!data || !data.url) {
         console.error(`R2 upload returned no URL (attempt ${attempt + 1})`);
         if (attempt < MAX_RETRIES) continue; // retry
-        updateSaveStatus('Ã¢ÂÂ  Image stored locally (invalid response)');
+        updateSaveStatus('ÃÂ¢ÃÂÃÂ  Image stored locally (invalid response)');
         return dataUrl;
       }
       return data.url;
@@ -112,7 +112,7 @@ async function _uploadImageToR2Inner(dataUrl) {
       const isTimeout = err.name === 'AbortError';
       console.error(`R2 upload ${isTimeout ? 'timed out' : 'error'} (attempt ${attempt + 1}):`, err);
       if (attempt < MAX_RETRIES) continue; // retry
-      updateSaveStatus(isTimeout ? 'Ã¢ÂÂ  Image upload timed out Ã¢ÂÂ stored locally' : 'Ã¢ÂÂ  Image stored locally (cloud upload failed)');
+      updateSaveStatus(isTimeout ? 'ÃÂ¢ÃÂÃÂ  Image upload timed out ÃÂ¢ÃÂÃÂ stored locally' : 'ÃÂ¢ÃÂÃÂ  Image stored locally (cloud upload failed)');
       return dataUrl;
     }
   }
@@ -181,7 +181,7 @@ async function ensurePDFLibs() {
   if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF failed to initialize');
 }
 
-// Ensure html2canvas is loaded (lighter than ensurePDFLibs â skips jsPDF)
+// Ensure html2canvas is loaded (lighter than ensurePDFLibs Ã¢ÂÂ skips jsPDF)
 async function ensureHtml2Canvas() {
   if (window.html2canvas) return;
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
@@ -213,13 +213,14 @@ async function captureCoverImage() {
     temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
   }
 
-  // Set crossOrigin on all images and force CORS re-fetch so html2canvas can read pixels
+  // Set crossOrigin on images and cache-bust to force CORS re-fetch
+  // (browser caches non-CORS responses, so same URL won't work)
   const imgs = temp.querySelectorAll('img');
   imgs.forEach(img => {
-    img.crossOrigin = 'anonymous';
-    const src = img.src;
-    // Cache-bust forces browser to re-request in CORS mode (non-CORS version is cached)
-    img.src = src + (src.includes('?') ? '&' : '?') + '_cors=1';
+    if (img.src && img.src.startsWith('http')) {
+      img.crossOrigin = 'anonymous';
+      img.src = img.src + (img.src.includes('?') ? '&' : '?') + '_cors=1';
+    }
   });
   if (imgs.length > 0) {
     await Promise.all(Array.from(imgs).map(img => {
@@ -232,8 +233,9 @@ async function captureCoverImage() {
     }));
   }
 
-  // NOTE: Do NOT call pdfFixImages here. It converts <img> to background-image divs
-  // which html2canvas cannot capture cross-origin. pdfFixImages is only for PDF export.
+  // Convert object-fit imgs to background-image divs (html2canvas can't handle object-fit)
+  // Images are now CORS-loaded so html2canvas can re-fetch them successfully
+  pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
   let canvas;
@@ -266,7 +268,7 @@ async function savePDF() {
   state.activePage = null;
   state.imagePositionMode = null;
   try {
-    if (btnPDF) { btnPDF.innerHTML = 'Ã¢ÂÂ³ Loading...'; btnPDF.disabled = true; }
+    if (btnPDF) { btnPDF.innerHTML = 'ÃÂ¢ÃÂÃÂ³ Loading...'; btnPDF.disabled = true; }
 
     await ensurePDFLibs();
 
@@ -394,14 +396,14 @@ async function savePDF() {
     }
 
     // --- Build PDF ---
-    // Page 1: Cover (single 400ÃÂ600)
+    // Page 1: Cover (single 400ÃÂÃÂ600)
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PW, PH] });
 
-    if (btnPDF) btnPDF.innerHTML = 'Ã¢ÂÂ³ Cover...';
+    if (btnPDF) btnPDF.innerHTML = 'ÃÂ¢ÃÂÃÂ³ Cover...';
     const coverCanvas = await capturePage(state.pages[0], PW, PH);
     pdf.addImage(coverCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PW, PH);
 
-    // Pages 2+: Spreads (pairs of pages, 800ÃÂ600)
+    // Pages 2+: Spreads (pairs of pages, 800ÃÂÃÂ600)
     const innerPages = state.pages.slice(1);
     for (let i = 0; i < innerPages.length; i += 2) {
       const leftPage = innerPages[i];
@@ -410,12 +412,12 @@ async function savePDF() {
       pdf.addPage([SW, PH], 'landscape');
 
       const spreadIdx = Math.floor(i / 2) + 1;
-      if (btnPDF) btnPDF.innerHTML = `Ã¢ÂÂ³ Spread ${spreadIdx}...`;
+      if (btnPDF) btnPDF.innerHTML = `ÃÂ¢ÃÂÃÂ³ Spread ${spreadIdx}...`;
 
       // Capture left page
       const leftCanvas = await capturePage(leftPage, PW, PH);
 
-      // Compose spread canvas (800ÃÂ600 at 2x = 1600ÃÂ1200)
+      // Compose spread canvas (800ÃÂÃÂ600 at 2x = 1600ÃÂÃÂ1200)
       const spreadCanvas = document.createElement('canvas');
       spreadCanvas.width = SW * 2;
       spreadCanvas.height = PH * 2;
@@ -516,7 +518,7 @@ const apiAdapter = {
   zineId: null,
   version: null,
   
-  // Build API URLs for this issue (flat routes Ã¢ÂÂ backend doesn't use nested zine routes)
+  // Build API URLs for this issue (flat routes ÃÂ¢ÃÂÃÂ backend doesn't use nested zine routes)
   issueUrl() {
     return `${API_BASE}/api/publisher/issues/${this.issueId}`;
   },
@@ -629,7 +631,7 @@ const apiAdapter = {
       const bs = data.builderState;
       
       if (bs && bs.pages && bs.pages.length > 0) {
-        // Paper name Ã¢ÂÂ hex color mapping (matches backend PAPER_COLORS)
+        // Paper name ÃÂ¢ÃÂÃÂ hex color mapping (matches backend PAPER_COLORS)
         const PAPER_HEX = {
           cotton: '#fdfbf7', cream: '#f8f4e8', bright: '#ffffff',
           kraft: '#d4c4a8', newsprint: '#f0ebe0', blush: '#fdf2f0',
@@ -638,7 +640,7 @@ const apiAdapter = {
         
         // Map backend page format to builder format
         const pages = bs.pages.map((p, i) => ({
-          // First page must be 'cover' Ã¢ÂÂ builder uses this ID for single-page rendering
+          // First page must be 'cover' ÃÂ¢ÃÂÃÂ builder uses this ID for single-page rendering
           id: i === 0 ? 'cover' : (p.id || `p${i}`),
           name: p.name || (i === 0 ? 'Cover' : `Page ${i}`),
           section: p.section,
@@ -689,7 +691,7 @@ const apiAdapter = {
         };
       }
       
-      // No pages yet Ã¢ÂÂ return null so builder starts fresh
+      // No pages yet ÃÂ¢ÃÂÃÂ return null so builder starts fresh
       return null;
     } catch (e) {
       console.error('Load error:', e);
@@ -700,7 +702,7 @@ const apiAdapter = {
   async save(issueId, builderState) {
     try {
       // Backend expects: PUT /issues/:id/save with { builderState: { version, project, pages, roles } }
-      // Hex Ã¢ÂÂ paper name mapping (reverse of load)
+      // Hex ÃÂ¢ÃÂÃÂ paper name mapping (reverse of load)
       
       const builderStatePayload = {
         version: '13.1',
@@ -934,7 +936,7 @@ async function bootstrapPersistence() {
     } catch (e) {}
     
   } else if (apiAdapter.loadTokensFromSession()) {
-    // Page was refreshed Ã¢ÂÂ restore from sessionStorage
+    // Page was refreshed ÃÂ¢ÃÂÃÂ restore from sessionStorage
     const storedIssueId = sessionStorage.getItem('oz_builder_issueId');
     const storedZineId = sessionStorage.getItem('oz_builder_zineId');
     
@@ -1107,7 +1109,7 @@ async function publishIssue() {
     }
 
     if (isAlreadyPublished) {
-      // Already published Ã¢ÂÂ push a new snapshot to live
+      // Already published ÃÂ¢ÃÂÃÂ push a new snapshot to live
       const res = await apiAdapter.fetch(apiAdapter.publishUrl(), {
         method: 'POST',
         body: JSON.stringify({ coverImageUrl })
@@ -1129,11 +1131,11 @@ async function publishIssue() {
       persistenceState.hasUnpublishedChanges = false;
       updatePublishBar();
 
-      showPublishModal('Live Updated Ã¢ÂÂ', 'Your changes are now live.', url || null);
+      showPublishModal('Live Updated ÃÂ¢ÃÂÃÂ', 'Your changes are now live.', url || null);
       btn.textContent = 'Update';
       btn.disabled = false;
     } else {
-      // First publish Ã¢ÂÂ call the publish endpoint
+      // First publish ÃÂ¢ÃÂÃÂ call the publish endpoint
       const res = await apiAdapter.fetch(apiAdapter.publishUrl(), {
         method: 'POST',
         body: JSON.stringify({ coverImageUrl })
@@ -1192,13 +1194,13 @@ async function updateLiveIssue() {
 
   const label = document.getElementById('publishBarLabel');
   const btn = document.getElementById('publishBarBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'PublishingÃ¢ÂÂ¦'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'PublishingÃÂ¢ÃÂÃÂ¦'; }
 
   try {
     // Save any pending draft changes first
     if (persistenceState.isDirty) {
       await saveNow();
-      if (persistenceState.isDirty) throw new Error('Could not save draft Ã¢ÂÂ check your connection.');
+      if (persistenceState.isDirty) throw new Error('Could not save draft ÃÂ¢ÃÂÃÂ check your connection.');
     }
 
     // Capture cover image and upload to R2
@@ -1233,11 +1235,11 @@ async function updateLiveIssue() {
     if (url) apiAdapter.publicUrl = url;
 
     persistenceState.hasUnpublishedChanges = false;
-    if (label) label.textContent = 'Live issue updated Ã¢ÂÂ';
+    if (label) label.textContent = 'Live issue updated ÃÂ¢ÃÂÃÂ';
     if (btn) btn.style.display = 'none';
     setTimeout(updatePublishBar, 2500);
   } catch (err) {
-    if (label) label.textContent = err.message || 'Update failed Ã¢ÂÂ try again';
+    if (label) label.textContent = err.message || 'Update failed ÃÂ¢ÃÂÃÂ try again';
     if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
   }
 }
