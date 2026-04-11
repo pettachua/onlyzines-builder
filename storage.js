@@ -213,8 +213,20 @@ async function captureCoverImage() {
     temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
   }
 
-  // Wait for images to load
+  // Force CORS reload: set crossOrigin and cache-bust all external images
+  // so html2canvas can access them after pdfFixImages converts to background-image
   const imgs = temp.querySelectorAll('img');
+  const cacheBust = '_cors=' + Date.now();
+  imgs.forEach(img => {
+    if (img.src && (img.src.startsWith('http://') || img.src.startsWith('https://'))) {
+      const originalSrc = img.src;
+      img.crossOrigin = 'anonymous';
+      const sep = originalSrc.includes('?') ? '&' : '?';
+      img.src = originalSrc + sep + cacheBust;
+    }
+  });
+
+  // Wait for images to reload with CORS headers
   if (imgs.length > 0) {
     await Promise.all(Array.from(imgs).map(img => {
       if (img.complete && img.naturalWidth > 0) return Promise.resolve();
@@ -234,7 +246,7 @@ async function captureCoverImage() {
     canvas = await html2canvas(temp, {
       scale: 2, width, height,
       backgroundColor: page.paper || '#f5f3ee',
-      useCORS: true, allowTaint: true, logging: false
+      useCORS: true, allowTaint: false, logging: false
     });
   } catch (err) {
     console.error('Cover capture error:', err);
