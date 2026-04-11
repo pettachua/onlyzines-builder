@@ -181,6 +181,71 @@ async function ensurePDFLibs() {
   if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF failed to initialize');
 }
 
+// Ensure html2canvas is loaded (lighter than ensurePDFLibs — skips jsPDF)
+async function ensureHtml2Canvas() {
+  if (window.html2canvas) return;
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  if (!window.html2canvas) throw new Error('html2canvas failed to load');
+}
+
+// Capture the cover page (page 0) as a JPEG data URL for publish-time cover generation.
+// This is a standalone version of the capturePage helper inside savePDF, used by publishIssue.
+async function captureCoverImage() {
+  await ensureHtml2Canvas();
+  const page = state.pages[0];
+  if (!page) return null;
+
+  const width = PAGE_W;
+  const height = PAGE_H;
+
+  const temp = document.createElement('div');
+  temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + width + 'px;height:' + height + 'px;overflow:hidden;pointer-events:none;background:' + (page.paper || '#f5f3ee');
+  temp.innerHTML = renderPageElement(page);
+  document.body.appendChild(temp);
+
+  // Clean up selection artifacts
+  temp.querySelectorAll('.handle, .crop-handle').forEach(el => el.remove());
+  temp.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+  temp.querySelectorAll('.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  const pageDiv = temp.querySelector('.page');
+  if (pageDiv) {
+    pageDiv.classList.remove('active-page');
+    temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
+  }
+
+  // Wait for images to load
+  const imgs = temp.querySelectorAll('img');
+  if (imgs.length > 0) {
+    await Promise.all(Array.from(imgs).map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = () => resolve();
+        setTimeout(resolve, 5000);
+      });
+    }));
+  }
+
+  pdfFixImages(temp);
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
+
+  let canvas;
+  try {
+    canvas = await html2canvas(temp, {
+      scale: 2, width, height,
+      backgroundColor: page.paper || '#f5f3ee',
+      useCORS: true, allowTaint: true, logging: false
+    });
+  } catch (err) {
+    console.error('Cover capture error:', err);
+    document.body.removeChild(temp);
+    return null;
+  }
+  document.body.removeChild(temp);
+
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
 async function savePDF() {
   const btnPDF = document.getElementById('btnPDF');
   const origHTML = btnPDF ? btnPDF.innerHTML : '';
@@ -1017,8 +1082,22 @@ async function publishIssue() {
     }
     
     // Capture cover snapshot and upload to R2
-    const coverDataUrl = await capturePage(state.pages[0], PW, PH);
-    const coverImageUrl = await uploadImageToR2(coverDataUrl);
+    // Capture cover image and upload to R2
+    btn.textContent = 'Capturing cover...';
+    let coverImageUrl = null;
+    try {
+      const coverDataUrl = await captureCoverImage();
+      if (coverDataUrl) {
+        btn.textContent = 'Uploading cover...';
+        const uploaded = await uploadImageToR2(coverDataUrl);
+        // Only use it if upload succeeded (returned a URL, not a data: fallback)
+        if (uploaded && !uploaded.startsWith('data:')) {
+          coverImageUrl = uploaded;
+        }
+      }
+    } catch (e) {
+      console.warn('Cover capture failed, publishing without cover:', e);
+    }
 
     if (isAlreadyPublished) {
       // Already published â push a new snapshot to live
@@ -1115,9 +1194,25 @@ async function updateLiveIssue() {
       if (persistenceState.isDirty) throw new Error('Could not save draft â check your connection.');
     }
 
+    // Capture cover image and upload to R2
+    if (btn) btn.textContent = 'Capturing cover...';
+    let coverImageUrl = null;
+    try {
+      const coverDataUrl = await captureCoverImage();
+      if (coverDataUrl) {
+        if (btn) btn.textContent = 'Uploading cover...';
+        const uploaded = await uploadImageToR2(coverDataUrl);
+        if (uploaded && !uploaded.startsWith('data:')) {
+          coverImageUrl = uploaded;
+        }
+      }
+    } catch (e) {
+      console.warn('Cover capture failed, updating without cover:', e);
+    }
+
     const res = await apiAdapter.fetch(apiAdapter.publishUrl(), {
       method: 'POST',
-      body: JSON.stringify({})
+      body: JSON.stringify(coverImageUrl ? { coverImageUrl } : {})
     });
 
     if (!res || !res.ok) {
