@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Only Zines â Builder</title>
+<title>Only Zines — Builder</title>
 <script>
 // Early check - hide gate immediately if coming from platform or already authed
 (function() {
@@ -204,7 +204,7 @@ html.skip-gate .app{display:flex!important}
 .handle-se{bottom:-6px;right:-6px;cursor:se-resize}
 .handle-sw{bottom:-6px;left:-6px;cursor:sw-resize}
 .handle-rotate{top:-28px;left:50%;transform:translateX(-50%);cursor:grab;width:14px;height:14px}
-.handle-rotate::after{content:'â»';position:absolute;top:0px;left:2px;font-size:10px;color:#3b82f6;font-weight:bold}
+.handle-rotate::after{content:'↻';position:absolute;top:0px;left:2px;font-size:10px;color:#3b82f6;font-weight:bold}
 
 /* Context Menu */
 .ctx-menu{position:fixed;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);min-width:140px;z-index:9999;display:none;padding:4px 0}
@@ -224,7 +224,7 @@ html.skip-gate .app{display:flex!important}
 .tool-title .tool-icon img{width:100%;height:100%;object-fit:cover;display:block}
 .tool-title .tool-name{flex:1}
 .tool-title .tool-summary{font-size:10px;color:#888;font-weight:400}
-.tool-title::after{content:'âº';font-size:18px;color:#3b82f6;font-weight:300;transition:transform 0.2s;margin-left:auto}
+.tool-title::after{content:'›';font-size:18px;color:#3b82f6;font-weight:300;transition:transform 0.2s;margin-left:auto}
 .tool-section.collapsed .tool-title::after{transform:rotate(0deg)}
 .tool-section:not(.collapsed) .tool-title::after{transform:rotate(90deg)}
 .tool-title.no-collapse{cursor:default}
@@ -328,7 +328,7 @@ html.skip-gate .app{display:flex!important}
 .reveal-indicator.show{display:block}
 .reveal-layer{position:absolute;inset:0;pointer-events:none}
 .reveal-layer img{position:absolute;top:0;left:0}
-/* Loading overlay â blocks interaction during API load */
+/* Loading overlay — blocks interaction during API load */
 .builder-loading-overlay{position:fixed;inset:0;background:rgba(245,243,238,0.92);z-index:9998;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;opacity:1;transition:opacity 0.3s ease}
 .builder-loading-overlay.hidden{opacity:0;pointer-events:none}
 .builder-loading-overlay .loading-text{font-family:'Inter',sans-serif;font-size:13px;color:#666;letter-spacing:0.5px}
@@ -461,10 +461,10 @@ html.skip-gate .app{display:flex!important}
 <span style="font-size:9px;color:#aaa;margin-left:4px" title="Build 2026-02-09-E">b.0209E</span>
 </div>
 <nav class="topbar-actions">
-<button class="btn" onclick="undo()" title="Undo" aria-label="Undo">â¶</button>
-<button class="btn" onclick="redo()" title="Redo" aria-label="Redo">â·</button>
-<button class="btn-icon" onclick="saveJSON()" id="btnSave" aria-label="Save project">ð¾ Save</button>
-<button class="btn-icon" onclick="savePDF()" id="btnPDF" aria-label="Export as PDF">ð PDF</button>
+<button class="btn" onclick="undo()" title="Undo" aria-label="Undo">↶</button>
+<button class="btn" onclick="redo()" title="Redo" aria-label="Redo">↷</button>
+<button class="btn-icon" onclick="saveJSON()" id="btnSave" aria-label="Save project">💾 Save</button>
+<button class="btn-icon" onclick="savePDF()" id="btnPDF" aria-label="Export as PDF">📄 PDF</button>
 <button class="btn btn-primary" onclick="publishIssue()" id="btnPublish" aria-label="Publish issue">Publish</button>
 </nav>
 </header>
@@ -502,12 +502,12 @@ html.skip-gate .app{display:flex!important}
 <strong>Cut Out / Remove BG</strong>
 <select id="cutoutMode">
 <option value="brush">Brush (paint to remove)</option>
-<option value="wand">ðª Magic Wand (click to remove similar)</option>
+<option value="wand">🪄 Magic Wand (click to remove similar)</option>
 <option value="rect">Rectangle</option>
 </select>
 <label>Size/Tolerance: <input type="range" id="cutoutSize" min="5" max="60" value="20" style="width:80px" aria-label="Brush size or tolerance"><span id="cutoutSizeLabel">20</span></label>
-<button onclick="cutoutUndo()" title="Undo (Ctrl+Z)" aria-label="Undo cutout">â© Undo</button>
-<button onclick="cutoutRedo()" title="Redo (Ctrl+Y)" aria-label="Redo cutout">âª Redo</button>
+<button onclick="cutoutUndo()" title="Undo (Ctrl+Z)" aria-label="Undo cutout">↩ Undo</button>
+<button onclick="cutoutRedo()" title="Redo (Ctrl+Y)" aria-label="Redo cutout">↪ Redo</button>
 <button onclick="clearCutout()" aria-label="Clear cutout">Clear</button>
 <button class="primary" onclick="applyCutout()" aria-label="Apply cutout">Apply</button>
 <button onclick="closeCutout()" aria-label="Cancel cutout">Cancel</button>
@@ -518,10 +518,10 @@ html.skip-gate .app{display:flex!important}
 
 <!-- Draw Bar -->
 <div class="draw-bar" id="drawBar" role="toolbar" aria-label="Drawing tools">
-<button class="draw-btn active" data-tool="ink" onclick="setDrawTool('ink')" aria-label="Ink pen">ð<span>Ink</span></button>
-<button class="draw-btn" data-tool="pen" onclick="setDrawTool('pen')" aria-label="Fountain pen">â<span>Pen</span></button>
-<button class="draw-btn" data-tool="pencil" onclick="setDrawTool('pencil')" aria-label="Pencil">â<span>Pencil</span></button>
-<button class="draw-btn" data-tool="chalk" onclick="setDrawTool('chalk')" aria-label="Chalk">ð<span>Chalk</span></button>
+<button class="draw-btn active" data-tool="ink" onclick="setDrawTool('ink')" aria-label="Ink pen">🖊<span>Ink</span></button>
+<button class="draw-btn" data-tool="pen" onclick="setDrawTool('pen')" aria-label="Fountain pen">✒<span>Pen</span></button>
+<button class="draw-btn" data-tool="pencil" onclick="setDrawTool('pencil')" aria-label="Pencil">✏<span>Pencil</span></button>
+<button class="draw-btn" data-tool="chalk" onclick="setDrawTool('chalk')" aria-label="Chalk">🖍<span>Chalk</span></button>
 <div class="draw-sep"></div>
 <input type="color" id="drawColorPicker" value="#333333" oninput="setDrawColor(this.value)" style="width:28px;height:28px;padding:0;border:2px solid #ddd;border-radius:4px;cursor:pointer;background:none" aria-label="Drawing color">
 <div class="draw-sep"></div>
@@ -533,17 +533,17 @@ html.skip-gate .app{display:flex!important}
 
 <!-- Reveal Brush Bar -->
 <div class="reveal-bar" id="revealBar" role="toolbar" aria-label="Reveal brush tools">
-<strong>â¨ Reveal Brush</strong>
+<strong>✨ Reveal Brush</strong>
 <label>Size: <input type="range" id="revealSize" min="5" max="80" value="30" aria-label="Reveal brush size"><span id="revealSizeLabel">30</span></label>
-<button onclick="revealUndo()" title="Undo (Ctrl+Z)" aria-label="Undo reveal stroke">â© Undo</button>
+<button onclick="revealUndo()" title="Undo (Ctrl+Z)" aria-label="Undo reveal stroke">↩ Undo</button>
 <button onclick="clearRevealMask()" title="Clear" aria-label="Clear reveal mask">Clear</button>
 <button class="primary" onclick="closeRevealBrush()" title="Done" aria-label="Finish reveal brush">Done</button>
 </div>
 
 <!-- Reveal Indicator (shows when holding R) -->
-<div class="reveal-indicator" id="revealIndicator">â¨ Reveal Mode (release R to exit)</div>
+<div class="reveal-indicator" id="revealIndicator">✨ Reveal Mode (release R to exit)</div>
 
-<!-- Loading Overlay â shown during API load, hidden in standalone mode -->
+<!-- Loading Overlay — shown during API load, hidden in standalone mode -->
 <div class="builder-loading-overlay hidden" id="builderLoadingOverlay">
   <div class="builder-loading-spinner"></div>
   <div class="loading-text">Loading your zine...</div>
