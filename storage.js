@@ -1,5 +1,5 @@
 // ============ UTILITIES ============
-// Normalize asset URLs (passthrough â R2 pub URLs work directly)
+// Normalize asset URLs (passthrough — R2 pub URLs work directly)
 function normalizeAssetUrl(url) {
   return url;
 }
@@ -96,14 +96,14 @@ async function _uploadImageToR2Inner(dataUrl) {
       if (!res || !res.ok) {
         console.error(`R2 upload failed (attempt ${attempt + 1}):`, res?.status);
         if (attempt < MAX_RETRIES) continue; // retry
-        updateSaveStatus('â  Image stored locally (cloud upload failed)');
+        updateSaveStatus('⚠ Image stored locally (cloud upload failed)');
         return dataUrl;
       }
       const data = await res.json();
       if (!data || !data.url) {
         console.error(`R2 upload returned no URL (attempt ${attempt + 1})`);
         if (attempt < MAX_RETRIES) continue; // retry
-        updateSaveStatus('â  Image stored locally (invalid response)');
+        updateSaveStatus('⚠ Image stored locally (invalid response)');
         return dataUrl;
       }
       return data.url;
@@ -112,7 +112,7 @@ async function _uploadImageToR2Inner(dataUrl) {
       const isTimeout = err.name === 'AbortError';
       console.error(`R2 upload ${isTimeout ? 'timed out' : 'error'} (attempt ${attempt + 1}):`, err);
       if (attempt < MAX_RETRIES) continue; // retry
-      updateSaveStatus(isTimeout ? 'â  Image upload timed out â stored locally' : 'â  Image stored locally (cloud upload failed)');
+      updateSaveStatus(isTimeout ? '⚠ Image upload timed out — stored locally' : '⚠ Image stored locally (cloud upload failed)');
       return dataUrl;
     }
   }
@@ -125,6 +125,36 @@ function saveJSON() {
   const data = { version: '20', title, pages: state.pages };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replace(/[^a-z0-9]/gi, '_') + '.json'; a.click();
+}
+
+// html2canvas v1.4.1 does NOT render CSS filter: (brightness, contrast, saturate).
+// Before capture, bake any per-image CSS filters into the pixel data so html2canvas
+// receives pre-filtered images with no CSS filter to ignore.
+// MUST run before pdfFixImages — while images are still <img> elements.
+function preFilterImages(container) {
+  container.querySelectorAll('img').forEach(function(img) {
+    var f = img.style.filter;
+    if (!f) return;
+    // Only handle brightness/contrast/saturate filters we apply
+    if (!/brightness|contrast|saturate/.test(f)) return;
+    // Need the image to be loaded
+    if (!img.complete || img.naturalWidth === 0) return;
+
+    try {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      var ctx = c.getContext('2d');
+      ctx.filter = f;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      img.src = c.toDataURL('image/png');
+      img.style.filter = '';
+    } catch (e) {
+      // Cross-origin or other error — leave the filter as-is (html2canvas will
+      // still capture without the filter, same as before this fix)
+      console.warn('preFilterImages: could not bake filter for', img.src?.substring(0, 60), e);
+    }
+  });
 }
 
 // html2canvas does NOT support object-fit on <img>. Before capture,
@@ -213,20 +243,8 @@ async function captureCoverImage() {
     temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
   }
 
-  // Force CORS reload: set crossOrigin and cache-bust all external images
-  // so html2canvas can access them after pdfFixImages converts to background-image
+  // Wait for images to load
   const imgs = temp.querySelectorAll('img');
-  const cacheBust = '_cors=' + Date.now();
-  imgs.forEach(img => {
-    if (img.src && (img.src.startsWith('http://') || img.src.startsWith('https://'))) {
-      const originalSrc = img.src;
-      img.crossOrigin = 'anonymous';
-      const sep = originalSrc.includes('?') ? '&' : '?';
-      img.src = originalSrc + sep + cacheBust;
-    }
-  });
-
-  // Wait for images to reload with CORS headers
   if (imgs.length > 0) {
     await Promise.all(Array.from(imgs).map(img => {
       if (img.complete && img.naturalWidth > 0) return Promise.resolve();
@@ -238,6 +256,7 @@ async function captureCoverImage() {
     }));
   }
 
+  preFilterImages(temp);
   pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -246,7 +265,7 @@ async function captureCoverImage() {
     canvas = await html2canvas(temp, {
       scale: 2, width, height,
       backgroundColor: page.paper || '#f5f3ee',
-      useCORS: true, allowTaint: false, logging: false
+      useCORS: true, allowTaint: true, logging: false
     });
   } catch (err) {
     console.error('Cover capture error:', err);
@@ -271,7 +290,7 @@ async function savePDF() {
   state.activePage = null;
   state.imagePositionMode = null;
   try {
-    if (btnPDF) { btnPDF.innerHTML = 'â³ Loading...'; btnPDF.disabled = true; }
+    if (btnPDF) { btnPDF.innerHTML = '⏳ Loading...'; btnPDF.disabled = true; }
 
     await ensurePDFLibs();
 
@@ -321,6 +340,7 @@ async function savePDF() {
         }));
       }
 
+      preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -399,14 +419,14 @@ async function savePDF() {
     }
 
     // --- Build PDF ---
-    // Page 1: Cover (single 400Ã600)
+    // Page 1: Cover (single 400×600)
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PW, PH] });
 
-    if (btnPDF) btnPDF.innerHTML = 'â³ Cover...';
+    if (btnPDF) btnPDF.innerHTML = '⏳ Cover...';
     const coverCanvas = await capturePage(state.pages[0], PW, PH);
     pdf.addImage(coverCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, PW, PH);
 
-    // Pages 2+: Spreads (pairs of pages, 800Ã600)
+    // Pages 2+: Spreads (pairs of pages, 800×600)
     const innerPages = state.pages.slice(1);
     for (let i = 0; i < innerPages.length; i += 2) {
       const leftPage = innerPages[i];
@@ -415,12 +435,12 @@ async function savePDF() {
       pdf.addPage([SW, PH], 'landscape');
 
       const spreadIdx = Math.floor(i / 2) + 1;
-      if (btnPDF) btnPDF.innerHTML = `â³ Spread ${spreadIdx}...`;
+      if (btnPDF) btnPDF.innerHTML = `⏳ Spread ${spreadIdx}...`;
 
       // Capture left page
       const leftCanvas = await capturePage(leftPage, PW, PH);
 
-      // Compose spread canvas (800Ã600 at 2x = 1600Ã1200)
+      // Compose spread canvas (800×600 at 2x = 1600×1200)
       const spreadCanvas = document.createElement('canvas');
       spreadCanvas.width = SW * 2;
       spreadCanvas.height = PH * 2;
@@ -521,7 +541,7 @@ const apiAdapter = {
   zineId: null,
   version: null,
   
-  // Build API URLs for this issue (flat routes â backend doesn't use nested zine routes)
+  // Build API URLs for this issue (flat routes — backend doesn't use nested zine routes)
   issueUrl() {
     return `${API_BASE}/api/publisher/issues/${this.issueId}`;
   },
@@ -634,7 +654,7 @@ const apiAdapter = {
       const bs = data.builderState;
       
       if (bs && bs.pages && bs.pages.length > 0) {
-        // Paper name â hex color mapping (matches backend PAPER_COLORS)
+        // Paper name → hex color mapping (matches backend PAPER_COLORS)
         const PAPER_HEX = {
           cotton: '#fdfbf7', cream: '#f8f4e8', bright: '#ffffff',
           kraft: '#d4c4a8', newsprint: '#f0ebe0', blush: '#fdf2f0',
@@ -643,7 +663,7 @@ const apiAdapter = {
         
         // Map backend page format to builder format
         const pages = bs.pages.map((p, i) => ({
-          // First page must be 'cover' â builder uses this ID for single-page rendering
+          // First page must be 'cover' — builder uses this ID for single-page rendering
           id: i === 0 ? 'cover' : (p.id || `p${i}`),
           name: p.name || (i === 0 ? 'Cover' : `Page ${i}`),
           section: p.section,
@@ -661,23 +681,13 @@ const apiAdapter = {
           })
         }));
         
-        // Safety: ensure at least cover + 6 pages (3 spreads). Pad if API returned fewer.
+        // Existing zine loaded from backend — preserve exact page count.
+        // Do NOT pad to a minimum here; that caused deleted pages to reappear.
+        // (New-zine padding is handled separately in builder.loadState when no data exists.)
         if (pages.length > 0) {
           // Ensure first page is always 'cover'
           pages[0].id = 'cover';
           pages[0].name = pages[0].name || 'Cover';
-          // Pad to minimum 7 pages (cover + 6)
-          const minPages = 7;
-          while (pages.length < minPages) {
-            const idx = pages.length;
-            pages.push({
-              id: `p${idx}`,
-              name: `Page ${idx}`,
-              paper: '#fdfbf7',
-              texture: undefined,
-              elements: []
-            });
-          }
         }
         
         return {
@@ -694,7 +704,7 @@ const apiAdapter = {
         };
       }
       
-      // No pages yet â return null so builder starts fresh
+      // No pages yet — return null so builder starts fresh
       return null;
     } catch (e) {
       console.error('Load error:', e);
@@ -705,7 +715,7 @@ const apiAdapter = {
   async save(issueId, builderState) {
     try {
       // Backend expects: PUT /issues/:id/save with { builderState: { version, project, pages, roles } }
-      // Hex â paper name mapping (reverse of load)
+      // Hex → paper name mapping (reverse of load)
       
       const builderStatePayload = {
         version: '13.1',
@@ -939,7 +949,7 @@ async function bootstrapPersistence() {
     } catch (e) {}
     
   } else if (apiAdapter.loadTokensFromSession()) {
-    // Page was refreshed â restore from sessionStorage
+    // Page was refreshed — restore from sessionStorage
     const storedIssueId = sessionStorage.getItem('oz_builder_issueId');
     const storedZineId = sessionStorage.getItem('oz_builder_zineId');
     
@@ -1092,8 +1102,7 @@ async function publishIssue() {
         throw new Error('Could not save changes. Please check your connection and try again.');
       }
     }
-    
-    // Capture cover snapshot and upload to R2
+
     // Capture cover image and upload to R2
     btn.textContent = 'Capturing cover...';
     let coverImageUrl = null;
@@ -1111,11 +1120,13 @@ async function publishIssue() {
       console.warn('Cover capture failed, publishing without cover:', e);
     }
 
+    const publishBody = coverImageUrl ? { coverImageUrl } : {};
+
     if (isAlreadyPublished) {
-      // Already published â push a new snapshot to live
+      // Already published — push a new snapshot to live
       const res = await apiAdapter.fetch(apiAdapter.publishUrl(), {
         method: 'POST',
-        body: JSON.stringify({ coverImageUrl })
+        body: JSON.stringify(publishBody)
       });
 
       if (!res || !res.ok) {
@@ -1134,14 +1145,14 @@ async function publishIssue() {
       persistenceState.hasUnpublishedChanges = false;
       updatePublishBar();
 
-      showPublishModal('Live Updated â', 'Your changes are now live.', url || null);
+      showPublishModal('Live Updated ✓', 'Your changes are now live.', url || null);
       btn.textContent = 'Update';
       btn.disabled = false;
     } else {
-      // First publish â call the publish endpoint
+      // First publish — call the publish endpoint
       const res = await apiAdapter.fetch(apiAdapter.publishUrl(), {
         method: 'POST',
-        body: JSON.stringify({ coverImageUrl })
+        body: JSON.stringify(publishBody)
       });
       
       if (!res || !res.ok) {
@@ -1197,13 +1208,13 @@ async function updateLiveIssue() {
 
   const label = document.getElementById('publishBarLabel');
   const btn = document.getElementById('publishBarBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Publishingâ¦'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
 
   try {
     // Save any pending draft changes first
     if (persistenceState.isDirty) {
       await saveNow();
-      if (persistenceState.isDirty) throw new Error('Could not save draft â check your connection.');
+      if (persistenceState.isDirty) throw new Error('Could not save draft — check your connection.');
     }
 
     // Capture cover image and upload to R2
@@ -1238,11 +1249,11 @@ async function updateLiveIssue() {
     if (url) apiAdapter.publicUrl = url;
 
     persistenceState.hasUnpublishedChanges = false;
-    if (label) label.textContent = 'Live issue updated â';
+    if (label) label.textContent = 'Live issue updated ✓';
     if (btn) btn.style.display = 'none';
     setTimeout(updatePublishBar, 2500);
   } catch (err) {
-    if (label) label.textContent = err.message || 'Update failed â try again';
+    if (label) label.textContent = err.message || 'Update failed — try again';
     if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
   }
 }
