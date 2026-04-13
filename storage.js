@@ -127,6 +127,51 @@ function saveJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replace(/[^a-z0-9]/gi, '_') + '.json'; a.click();
 }
 
+// html2canvas v1.4.1 does NOT render CSS filter: (brightness, contrast, saturate).
+// Before capture, bake any per-image CSS filters into the pixel data so html2canvas
+// receives pre-filtered images with no CSS filter to ignore.
+// MUST run before pdfFixImages — while images are still <img> elements.
+async function preFilterImages(container) {
+  var imgs = container.querySelectorAll('img');
+  for (var i = 0; i < imgs.length; i++) {
+    var img = imgs[i];
+    var f = img.style.filter;
+    if (!f) continue;
+    if (!/brightness|contrast|saturate/.test(f)) continue;
+    if (!img.complete || img.naturalWidth === 0) continue;
+    try {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      var ctx = c.getContext('2d');
+      ctx.filter = f;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      img.src = c.toDataURL('image/png');
+      img.style.filter = '';
+    } catch (e) {
+      try {
+        var corsImg = new Image();
+        corsImg.crossOrigin = 'anonymous';
+        await new Promise(function(resolve, reject) {
+          corsImg.onload = resolve;
+          corsImg.onerror = reject;
+          var bust = img.src.indexOf('?') === -1 ? '?' : '&';
+          corsImg.src = img.src + bust + '_cors=' + Date.now();
+        });
+        var c2 = document.createElement('canvas');
+        c2.width = corsImg.naturalWidth;
+        c2.height = corsImg.naturalHeight;
+        var ctx2 = c2.getContext('2d');
+        ctx2.filter = f;
+        ctx2.drawImage(corsImg, 0, 0, c2.width, c2.height);
+        img.src = c2.toDataURL('image/png');
+        img.style.filter = '';
+      } catch (e2) {
+        console.warn('preFilterImages: could not bake filter for', img.src && img.src.substring(0, 60), e2);
+      }
+    }
+  }
+}
 // html2canvas does NOT support object-fit on <img>. Before capture,
 // convert any <img> using object-fit into a <div> with background-image.
 function pdfFixImages(container) {
@@ -238,6 +283,7 @@ async function captureCoverImage() {
     }));
   }
 
+  await preFilterImages(temp);
   pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -321,6 +367,7 @@ async function savePDF() {
         }));
       }
 
+      await preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
