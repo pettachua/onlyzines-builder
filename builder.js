@@ -815,6 +815,7 @@ function handlePageDrop(e, pageId) {
           el.innerY = Math.round((el.h - ih) / 2);
           el.innerW = iw;
           el.innerH = ih;
+          _needsPagesPanelUpdate = true;
           render();
           // Upload to R2 in background, swap when done
           const gen = _stateGeneration;
@@ -915,6 +916,7 @@ function uploadToElement(elId, pageId) {
       const compressed = await compressImage(ev.target.result);
       // Display immediately with local data URL
       el.src = compressed;
+      _needsPagesPanelUpdate = true;
       render();
       // Upload to R2 in background, swap when done
       const gen = _stateGeneration;
