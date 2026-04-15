@@ -7,7 +7,9 @@ const builder = {
   
   // Get serialized state for saving
   getState() {
+   const _gsSwaps = _extractBlobs(state.pages);
     const pages = JSON.parse(JSON.stringify(state.pages));
+    _restoreBlobs(_gsSwaps);
     // Filter out elements that are entirely off-canvas (outside page bounds)
     pages.forEach(page => {
       page.elements = (page.elements || []).filter(el => {
