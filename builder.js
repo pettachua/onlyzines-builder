@@ -7,9 +7,11 @@ const builder = {
   
   // Get serialized state for saving
   getState() {
-   const _gsSwaps = _extractBlobs(state.pages);
+    const _gs0 = performance.now();
+    const _gsSwaps = _extractBlobs(state.pages);
     const pages = JSON.parse(JSON.stringify(state.pages));
     _restoreBlobs(_gsSwaps);
+    const _gs1 = performance.now();
     // Filter out elements that are entirely off-canvas (outside page bounds)
     pages.forEach(page => {
       page.elements = (page.elements || []).filter(el => {
@@ -17,6 +19,12 @@ const builder = {
         return el.x < PAGE_W && el.y < PAGE_H && (el.x + el.w) > 0 && (el.y + el.h) > 0;
       });
     });
+    // Restore blob refs → real data URLs in the cloned copy so save payload has actual data
+    _rehydrateBlobs(pages);
+    const _gs2 = performance.now();
+    if ((_gs2 - _gs0) > 5) {
+      console.warn(`[getState perf] serialize=${(_gs1-_gs0).toFixed(1)}ms  rehydrate=${(_gs2-_gs1).toFixed(1)}ms  total=${(_gs2-_gs0).toFixed(1)}ms`);
+    }
     return {
       pages,
       title: document.querySelector('.topbar-title')?.textContent || 'Untitled Zine'
@@ -29,20 +37,11 @@ const builder = {
     try {
       state.pages = JSON.parse(JSON.stringify(newState.pages));
       
-      // Ensure minimum document structure: cover + 6 pages (3 spreads)
+      // Existing data — preserve exact page count from save. Do NOT pad.
+      // (New-zine defaults are set in init(), not here.)
       if (state.pages.length > 0) {
         state.pages[0].id = 'cover';
         state.pages[0].name = 'Cover';
-      }
-      const minPages = 7;
-      while (state.pages.length < minPages) {
-        const idx = state.pages.length;
-        state.pages.push({
-          id: idx === 0 ? 'cover' : `p${idx}`,
-          name: idx === 0 ? 'Cover' : `Page ${idx}`,
-          paper: '#fdfbf7',
-          elements: []
-        });
       }
       // Renumber all pages so display names are always sequential
       for (let i = 1; i < state.pages.length; i++) {
@@ -329,31 +328,24 @@ function selectPage(id) {
 }
 
 function applyLayout(id) {
+  const _al0 = performance.now();
   const layout = LAYOUTS.find(l => l.id === id);
   if (!layout) return;
   const page = getActivePage();
   if (!page) return;
-  
+
   saveHistory();
-  
+  const _al1 = performance.now();
+
   // Collect existing content from the page
   const existingImages = page.elements.filter(el => el.t === 'image' && el.src);
   const existingText = page.elements.filter(el => el.t === 'text' && el.txt && el.txt.trim());
-  
-  // Build defaults dynamically from ALL layout placeholder text (case-insensitive)
-  const allLayoutDefaults = new Set();
-  LAYOUTS.forEach(lay => {
-    lay.elements.forEach(el => {
-      if (el.t === 'text' && el.txt) {
-        allLayoutDefaults.add(el.txt.toLowerCase().trim());
-      }
-    });
-  });
-  
+
+  // Use pre-computed set from constants.js (avoids rebuilding on every call)
   function isPlaceholderText(txt) {
     if (!txt || !txt.trim()) return true;
     const lower = txt.toLowerCase().trim();
-    if (allLayoutDefaults.has(lower)) return true;
+    if (_ALL_LAYOUT_DEFAULTS.has(lower)) return true;
     if (lower.startsWith('lorem ipsum')) return true;
     if (lower.startsWith('lorem:')) return true;
     return false;
@@ -369,7 +361,11 @@ function applyLayout(id) {
       id: generateId(),
       z: idx + 1
     }));
+    _needsPagesPanelUpdate = true;
+    const _al2 = performance.now();
     render();
+    const _al3 = performance.now();
+    if ((_al3 - _al0) > 16) console.warn(`[applyLayout perf] total=${(_al3-_al0).toFixed(1)}ms  saveHistory=${(_al1-_al0).toFixed(1)}ms  logic=${(_al2-_al1).toFixed(1)}ms  render=${(_al3-_al2).toFixed(1)}ms  layout=${id}  hasContent=false`);
     return;
   }
   
@@ -450,7 +446,11 @@ function applyLayout(id) {
   });
   
   page.elements = newElements;
+  _needsPagesPanelUpdate = true;
+  const _al2 = performance.now();
   render();
+  const _al3 = performance.now();
+  if ((_al3 - _al0) > 16) console.warn(`[applyLayout perf] total=${(_al3-_al0).toFixed(1)}ms  saveHistory=${(_al1-_al0).toFixed(1)}ms  logic=${(_al2-_al1).toFixed(1)}ms  render=${(_al3-_al2).toFixed(1)}ms  layout=${id}  hasContent=true  imgs=${existingImages.length}  texts=${existingText.length}`);
 }
 
 function addPage() {
