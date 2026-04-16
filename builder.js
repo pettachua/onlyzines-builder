@@ -232,6 +232,40 @@ function _populateBlobStore(pages) {
   }
 }
 
+// Prune _blobStore entries that are no longer referenced by any history snapshot.
+// Called periodically (every 10 saves) to prevent unbounded growth.
+let _blobPruneCounter = 0;
+function _pruneBlobStore() {
+  if (_blobStore.size === 0) return;
+  _blobPruneCounter++;
+  if (_blobPruneCounter < 10) return; // only prune every 10 saves
+  _blobPruneCounter = 0;
+  // Collect all blob refs that appear in current history
+  const liveRefs = new Set();
+  for (const snapshot of state.history) {
+    // Scan for blob_XXXX_YYYY keys (fast string search, no parse needed)
+    let idx = 0;
+    while ((idx = snapshot.indexOf('blob_', idx)) !== -1) {
+      const end = snapshot.indexOf('"', idx);
+      if (end !== -1) liveRefs.add(snapshot.substring(idx, end));
+      idx = end !== -1 ? end : idx + 5;
+    }
+  }
+  // Also keep refs for current live state data URLs
+  for (const p of state.pages) {
+    for (const el of (p.elements || [])) {
+      if (el.src && typeof el.src === 'string' && el.src.startsWith('data:')) {
+        liveRefs.add(_blobKey(el.src));
+      }
+    }
+  }
+  let pruned = 0;
+  for (const key of _blobStore.keys()) {
+    if (!liveRefs.has(key)) { _blobStore.delete(key); pruned++; }
+  }
+  if (pruned > 0) console.log(`[blobStore] pruned ${pruned} stale entries, ${_blobStore.size} remain`);
+}
+
 // --- End blob externalization helpers ---
 
 function saveHistory() {
@@ -272,7 +306,10 @@ function saveHistory() {
   }
 
   state.historyIndex = state.history.length - 1;
-  
+
+  // Periodically prune orphaned blob store entries to prevent memory growth
+  _pruneBlobStore();
+
   // Emit change event for persistence layer
   if (typeof builder !== 'undefined' && builder.emit) {
     builder.emit('change');
@@ -3016,13 +3053,13 @@ document.addEventListener('keydown', e => {
   const cutoutOpen = document.getElementById('cutoutOverlay').classList.contains('show');
   const isTyping = document.activeElement?.tagName === 'INPUT' || document.activeElement?.isContentEditable;
   
-  // R key for quick reveal mode
-  if (e.key === 'r' && !isTyping && !cutoutOpen && !e.metaKey && !e.ctrlKey) {
-    if (!revealState.quickMode && !revealState.active) {
-      startQuickReveal();
-    }
-    return;
-  }
+  // R key for quick reveal mode — disabled while reveal brush is being stabilised
+  // if (e.key === 'r' && !isTyping && !cutoutOpen && !e.metaKey && !e.ctrlKey) {
+  //   if (!revealState.quickMode && !revealState.active) {
+  //     startQuickReveal();
+  //   }
+  //   return;
+  // }
   
   if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
     // If user is typing in any editable field, let browser handle select-all naturally

@@ -454,8 +454,12 @@ function renderElement(el, pageId, xOffset) {
 }
 
 // ============ STAGE EVENT BINDING ============
+// Named handler refs — lets us removeEventListener before re-adding to prevent listener accumulation
+// on persistent elements (like #stage) that survive innerHTML replacements.
+let _stageMousedownHandler = null;
+
 function bindStageEvents() {
-  // Page clicks
+  // Page clicks (these elements are recreated by innerHTML, so no accumulation risk)
   document.querySelectorAll('.page').forEach(pageEl => {
     pageEl.addEventListener('mousedown', e => {
       // Only start marquee if clicking directly on page background
@@ -569,9 +573,12 @@ function bindStageEvents() {
   });
 
   // Click on grey stage background (outside the canvas/spread) → deselect everything
+  // IMPORTANT: #stage persists across renders (only its innerHTML is replaced),
+  // so we must remove the old listener before adding a new one to prevent accumulation.
   const stageEl = document.getElementById('stage');
   if (stageEl) {
-    stageEl.addEventListener('mousedown', e => {
+    if (_stageMousedownHandler) stageEl.removeEventListener('mousedown', _stageMousedownHandler);
+    _stageMousedownHandler = function(e) {
       // Only if clicking the stage itself, not a child (spread, page, element, etc.)
       if (e.target === stageEl) {
         const activeEditable = document.querySelector('.text-content[contenteditable="true"]');
@@ -581,7 +588,8 @@ function bindStageEvents() {
         state.multiSelected = [];
         render();
       }
-    });
+    };
+    stageEl.addEventListener('mousedown', _stageMousedownHandler);
   }
 
   // Click on empty space within .spread-elements overlay → deselect

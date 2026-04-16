@@ -647,13 +647,13 @@ function renderImageSection(el, isImage, isExpanded) {
     html += `<button class="tool-btn" onclick="restoreBackground()" style="margin-top:6px">↩️ Restore Original</button>`;
   }
   
-  // Reveal Brush
-  html += `<div class="divider"></div>`;
-  html += `<button class="tool-btn" onclick="openRevealBrush()">✨ Reveal Brush</button>`;
-  html += `<p style="font-size:9px;color:#888;margin-top:4px">Paint to reveal image above other elements (like text). Tip: Hold R for quick access.</p>`;
-  if (imgEl?.revealMask) {
-    html += `<button class="tool-btn" onclick="clearRevealMask()" style="margin-top:6px">Clear Reveal Mask</button>`;
-  }
+  // Reveal Brush — hidden while being stabilised (causes listener leaks on repeated use)
+  // html += `<div class="divider"></div>`;
+  // html += `<button class="tool-btn" onclick="openRevealBrush()">✨ Reveal Brush</button>`;
+  // html += `<p style="font-size:9px;color:#888;margin-top:4px">Paint to reveal image above other elements (like text). Tip: Hold R for quick access.</p>`;
+  // if (imgEl?.revealMask) {
+  //   html += `<button class="tool-btn" onclick="clearRevealMask()" style="margin-top:6px">Clear Reveal Mask</button>`;
+  // }
 
   html += `</div>`; // close optionsDisabled div
   
