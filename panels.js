@@ -415,11 +415,21 @@ function renderToolsPanel() {
     html += `<button class="tool-btn" style="color:#c00;border-color:#fcc" onclick="deleteElement()">Delete Element</button>`;
   }
   
+  // Preserve font-list scroll position across innerHTML rebuild
+  const _prevFontList = document.getElementById('persistent-font-list');
+  const _savedFontScroll = _prevFontList ? _prevFontList.scrollTop : 0;
+
   panel.innerHTML = html;
 
   // Re-attach the persistent font list (built once, survives innerHTML rebuilds)
   const activeFamily = (isText && el) ? (el.fontFamily || 'Inter,sans-serif') : null;
   initFontList(activeFamily);
+
+  // Restore font-list scroll position
+  if (_savedFontScroll > 0) {
+    const _newFontList = document.getElementById('persistent-font-list');
+    if (_newFontList) _newFontList.scrollTop = _savedFontScroll;
+  }
 }
 
 function renderTextSection(el, isText, isExpanded) {

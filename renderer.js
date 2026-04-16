@@ -1,10 +1,32 @@
 // ============ MAIN RENDER ============
+// Global render throttle — prevents back-to-back render() calls from piling up during rapid
+// interactions (font browsing, font-size scrubbing, colour dragging). Any call within the
+// cooldown window is coalesced into a single trailing render.
+let _renderLastRun = 0;
+let _renderPending = null;
+const RENDER_MIN_INTERVAL = 80; // ms — hard floor between consecutive renders
+
 function render() {
   // Skip re-render while draw mode is active and canvas already exists — stage rebuild would wipe drawn content.
   // The first render after entering draw mode is allowed through (canvas not yet in DOM) to create the canvas.
   if (drawState.active && document.getElementById('drawCanvas')) return;
+
+  const now = performance.now();
+  const elapsed = now - _renderLastRun;
+  if (elapsed < RENDER_MIN_INTERVAL) {
+    // Too soon — schedule a trailing render if one isn't already pending
+    if (!_renderPending) {
+      _renderPending = setTimeout(() => {
+        _renderPending = null;
+        render();
+      }, RENDER_MIN_INTERVAL - elapsed);
+    }
+    return;
+  }
+
   try {
-    const _r0 = performance.now();
+    _renderLastRun = performance.now();
+    const _r0 = _renderLastRun;
     let _r1 = _r0;
     if (_needsPagesPanelUpdate) {
       renderPagesPanel();
