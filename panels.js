@@ -313,6 +313,12 @@ function spreadMouseUp(e) {
 let _lastToolsFingerprint = '';
 
 function renderToolsPanel() {
+  // Phase A — sync clipboard quick-action buttons FIRST (before any early return)
+  // so selection changes always update button disabled states, even when the
+  // tools-panel fingerprint gate / color-picker gate / typing gate would skip
+  // the actual panel rebuild below.
+  if (typeof updateQuickActions === 'function') updateQuickActions();
+
   // Skip re-render while color picker slider is being dragged — prevents destroying the slider mid-drag
   if (window._colorPickerActive) return;
   // Skip re-render if user is actively typing in a tools panel input (hex color, font size, etc.)
