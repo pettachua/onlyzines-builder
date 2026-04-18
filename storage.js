@@ -1286,14 +1286,49 @@ async function bootstrapPersistence() {
 function updatePublishButton() {
   const btn = document.getElementById('btnPublish');
   if (!btn) return;
-  
+
+  // Phase B: 📄 prefix on both states. Update phrasing is tighter than 'Update your published zine'.
   if (apiAdapter.publishedAt) {
-    btn.textContent = 'Update';
+    btn.textContent = '📄 Update';
     btn.title = 'Update your published zine';
   } else {
-    btn.textContent = 'Publish';
+    btn.textContent = '📄 Publish';
     btn.title = 'Publish this issue';
   }
+}
+
+// Phase B: Print modal. Reuses .publish-modal-overlay/.publish-modal container from showPublishModal.
+// "Print flat" is a thin wrapper around the existing savePDF() — no forked export logic.
+// "Print & fold (True Zine)" is explicitly disabled until Phase C ships the fold imposition.
+function openPrintModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'publish-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="publish-modal">
+      <h3>Print</h3>
+      <p>Choose how you want this zine on paper.</p>
+      <div class="print-modal-options">
+        <button class="print-modal-option" id="printFlatBtn" type="button">
+          <div class="print-modal-option-title">Print flat</div>
+          <div class="print-modal-option-desc">For display, moodboards, or reading in-hand. Downloads the same PDF as the PDF button.</div>
+        </button>
+        <button class="print-modal-option" id="printFoldBtn" type="button" disabled aria-disabled="true" title="Coming soon — fold imposition lands in the next update">
+          <div class="print-modal-option-title">Print &amp; fold (True Zine)</div>
+          <div class="print-modal-option-desc">Imposed for folding into a booklet — stack, fold, done.</div>
+          <span class="print-modal-option-soon">Coming soon</span>
+        </button>
+      </div>
+      <button class="publish-modal-close" onclick="this.closest('.publish-modal-overlay').remove()">Done</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  // Print flat → close modal, then call existing savePDF() unchanged.
+  const flatBtn = overlay.querySelector('#printFlatBtn');
+  flatBtn.addEventListener('click', () => {
+    overlay.remove();
+    savePDF();
+  });
 }
 
 function getPublicUrl() {

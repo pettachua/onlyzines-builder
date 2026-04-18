@@ -401,6 +401,17 @@ html.skip-gate .app{display:flex!important}
 .publish-bar-btn{padding:3px 11px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:3px;cursor:pointer;color:#555;font-family:inherit}
 .publish-bar-btn:hover{border-color:#999;color:#222}
 .publish-bar-btn:disabled{opacity:0.5;cursor:default}
+/* Print modal — reuses .publish-modal-overlay/.publish-modal container; only the two-option grid is new */
+.print-modal-options{display:flex;gap:12px;margin:20px 0 8px}
+.print-modal-option{flex:1;padding:16px 14px;border:1px solid #ddd;border-radius:10px;background:#fff;text-align:left;cursor:pointer;font-family:inherit;transition:border-color .15s,background .15s}
+.print-modal-option:hover{border-color:#999;background:#faf9f6}
+.print-modal-option:focus-visible{outline:2px solid #111;outline-offset:2px}
+.print-modal-option-title{font-size:14px;font-weight:600;color:#111;margin-bottom:4px}
+.print-modal-option-desc{font-size:12px;color:#666;line-height:1.4}
+.print-modal-option[disabled]{opacity:.45;cursor:not-allowed;background:#f5f4f2;color:#999}
+.print-modal-option[disabled]:hover{border-color:#ddd;background:#f5f4f2}
+.print-modal-option[disabled] .print-modal-option-title{color:#999}
+.print-modal-option-soon{display:inline-block;margin-top:8px;padding:2px 7px;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#888;background:#ebe8e1;border-radius:3px;font-family:'Space Mono',monospace,system-ui}
 </style>
 </head>
 <body>
@@ -514,8 +525,9 @@ html.skip-gate .app{display:flex!important}
 <nav class="topbar-actions">
 <button class="btn" onclick="undo()" title="Undo" aria-label="Undo">↶</button>
 <button class="btn" onclick="redo()" title="Redo" aria-label="Redo">↷</button>
-<button class="btn-icon" onclick="savePDF()" id="btnPDF" aria-label="Export as PDF">📄 PDF</button>
-<button class="btn btn-primary" onclick="publishIssue()" id="btnPublish" aria-label="Publish issue">Publish</button>
+<button class="btn-icon" onclick="openPrintModal()" id="btnPrint" aria-label="Print" title="Print">🖨️ Print</button>
+<button class="btn-icon" onclick="savePDF()" id="btnPDF" aria-label="Export as PDF" title="Save as PDF">💾 PDF</button>
+<button class="btn btn-primary" onclick="publishIssue()" id="btnPublish" aria-label="Publish issue" title="Publish this issue">📄 Publish</button>
 </nav>
 </header>
 <div class="main">
