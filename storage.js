@@ -563,10 +563,86 @@ const apiAdapter = {
     access: null,
     refresh: null
   },
-  
+
   issueId: null,
   zineId: null,
   version: null,
+
+  // ============ SESSION LIFECYCLE ============
+  // Proactive refresh + sleep/wake handling, per Pete & Clive's guardrails:
+  //   A: single refresh in flight (already via _refreshPromise below)
+  //   B: clean degradation — once terminal, stop retrying
+  // Modal only fires on terminal auth failure (refresh endpoint 401), not on
+  // network blips, 5xx, or ordinary 401s that successfully re-auth.
+  _refreshTimer: null,
+  _accessExpiresAt: null,   // ms since epoch
+  _sessionExpired: false,   // terminal auth-failure flag
+  _lifecycleInitialized: false,
+  _onSessionExpired: null,  // UI hook set by caller; fired once on terminal failure
+
+  sessionExpired() { return this._sessionExpired; },
+
+  // Decode the JWT exp claim (ms) without verifying signature — we trust our own token.
+  _decodeAccessExpiry(accessToken) {
+    try {
+      const payload = JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return payload && typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  _scheduleProactiveRefresh() {
+    this._cancelProactiveRefresh();
+    if (!this.tokens.access) return;
+    const expMs = this._decodeAccessExpiry(this.tokens.access);
+    this._accessExpiresAt = expMs;
+    if (!expMs) return;
+    // Fire 5 min before expiry; if already past that threshold, fire soon.
+    const delay = Math.max(1000, expMs - Date.now() - 5 * 60 * 1000);
+    this._refreshTimer = setTimeout(() => {
+      this._refreshTimer = null;
+      // Don't await; the single-flight mutex handles any overlap.
+      this.refreshAccessToken();
+    }, delay);
+  },
+
+  _cancelProactiveRefresh() {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+  },
+
+  // On tab wake: timers may be stale, so recompute from actual expiry.
+  async _handleVisibilityChange() {
+    if (document.visibilityState !== 'visible') return;
+    if (this._sessionExpired || !this.tokens.access) return;
+    const expMs = this._accessExpiresAt || this._decodeAccessExpiry(this.tokens.access);
+    if (!expMs) return;
+    // If within 5 min of expiry (or already expired), refresh now.
+    if (Date.now() >= expMs - 5 * 60 * 1000) {
+      await this.refreshAccessToken();
+    } else {
+      // Re-arm the timer in case it was lost during sleep.
+      this._scheduleProactiveRefresh();
+    }
+  },
+
+  _markSessionExpired() {
+    if (this._sessionExpired) return;
+    this._sessionExpired = true;
+    this._cancelProactiveRefresh();
+    try { if (typeof this._onSessionExpired === 'function') this._onSessionExpired(); } catch (e) {}
+  },
+
+  initLifecycle() {
+    if (this._lifecycleInitialized) return;
+    this._lifecycleInitialized = true;
+    try {
+      document.addEventListener('visibilitychange', () => this._handleVisibilityChange());
+    } catch (e) {}
+  },
   
   // Build API URLs for this issue (flat routes â backend doesn't use nested zine routes)
   issueUrl() {
@@ -584,10 +660,14 @@ const apiAdapter = {
   setTokens(access, refresh) {
     this.tokens.access = access;
     this.tokens.refresh = refresh;
+    // Fresh tokens mean we're authenticated again — clear any terminal-expired state.
+    this._sessionExpired = false;
     // Persist to sessionStorage so tokens survive page refresh within the tab
     try {
       sessionStorage.setItem('oz_builder_tokens', JSON.stringify({ access, refresh }));
     } catch (e) { /* sessionStorage unavailable */ }
+    this.initLifecycle();
+    this._scheduleProactiveRefresh();
   },
   
   loadTokensFromSession() {
@@ -596,6 +676,8 @@ const apiAdapter = {
       if (stored && stored.access) {
         this.tokens.access = stored.access;
         this.tokens.refresh = stored.refresh;
+        this.initLifecycle();
+        this._scheduleProactiveRefresh();
         return true;
       }
     } catch (e) {}
@@ -613,7 +695,8 @@ const apiAdapter = {
 
   async refreshAccessToken() {
     if (!this.tokens.refresh) return false;
-    // If a refresh is already in flight, piggyback on it
+    if (this._sessionExpired) return false; // Guardrail B: don't retry-storm after terminal failure
+    // If a refresh is already in flight, piggyback on it (Guardrail A)
     if (this._refreshPromise) return this._refreshPromise;
 
     this._refreshPromise = (async () => {
@@ -623,7 +706,14 @@ const apiAdapter = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken: this.tokens.refresh })
         });
-        if (!res.ok) return false;
+        if (!res.ok) {
+          // 401 from the refresh endpoint = refresh token is terminally dead.
+          // Anything else (5xx, timeout) = transient; let the next fetch try again.
+          if (res.status === 401) {
+            this._markSessionExpired();
+          }
+          return false;
+        }
         const data = await res.json();
         this.tokens.access = data.tokens?.accessToken || data.accessToken;
         if (data.tokens?.refreshToken) this.tokens.refresh = data.tokens.refreshToken;
@@ -631,8 +721,11 @@ const apiAdapter = {
         try {
           sessionStorage.setItem('oz_builder_tokens', JSON.stringify({ access: this.tokens.access, refresh: this.tokens.refresh }));
         } catch (e) {}
+        // Reschedule the proactive refresh for the new token's lifetime
+        this._scheduleProactiveRefresh();
         return true;
       } catch (e) {
+        // Network error / fetch threw — transient, not terminal. Let next call try again.
         console.error('Token refresh failed:', e);
         return false;
       } finally {
@@ -645,6 +738,8 @@ const apiAdapter = {
 
   async fetch(url, options = {}) {
     if (!this.tokens.access) return null;
+    // Guardrail B: if session is already terminally expired, don't attempt further requests.
+    if (this._sessionExpired) return null;
 
     // Clone options to avoid mutating the caller's object on retry
     const makeHeaders = () => ({
@@ -738,6 +833,7 @@ const apiAdapter = {
           zine: data.zine || null,
           isPublished: data.issue?.isPublished || false,
           hasUnpublishedChanges: data.issue?.hasUnpublishedChanges || false,
+          updatedAt: data.issue?.updatedAt || null, // used to compare against any preserved local draft
         };
       }
       
@@ -811,7 +907,7 @@ const localAdapter = {
       return null;
     }
   },
-  
+
   save(key, state) {
     try {
       localStorage.setItem(`oz_${key}`, JSON.stringify(state));
@@ -819,6 +915,46 @@ const localAdapter = {
     } catch (e) {
       return false;
     }
+  }
+};
+
+// ============================================================================
+// DRAFT STORE — Pete & Clive's "preserve draft FIRST, then decide UI" layer.
+// Writes the builder state to localStorage keyed by issueId so the work survives
+// any auth failure, tab crash, or accidental close. Cleared on successful save
+// or publish so we never resurrect zombie drafts.
+// ============================================================================
+const draftStore = {
+  _key(issueId) { return `oz_draft_${issueId}`; },
+
+  preserve(issueId, state) {
+    if (!issueId || !state) return false;
+    try {
+      localStorage.setItem(this._key(issueId), JSON.stringify({
+        savedAt: Date.now(),
+        state
+      }));
+      return true;
+    } catch (e) {
+      // QuotaExceeded on mobile or with very large drafts — not fatal.
+      console.warn('Draft preservation failed:', e);
+      return false;
+    }
+  },
+
+  load(issueId) {
+    if (!issueId) return null;
+    try {
+      const raw = localStorage.getItem(this._key(issueId));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  clear(issueId) {
+    if (!issueId) return;
+    try { localStorage.removeItem(this._key(issueId)); } catch (e) {}
   }
 };
 
@@ -851,6 +987,61 @@ function updateSaveStatus(status) {
     }
   }
   if (el) el.textContent = status;
+}
+
+// ============================================================================
+// SESSION-EXPIRED MODAL — shown ONLY on terminal auth failure (refresh token
+// dead), NOT on network blips, 5xx, or ordinary 401s that re-auth cleanly.
+// Draft is already preserved by the caller; this is just the UI surface.
+// ============================================================================
+let _sessionExpiredShown = false;
+function showSessionExpiredModal() {
+  if (_sessionExpiredShown) return; // idempotent — no modal spam
+  _sessionExpiredShown = true;
+  const overlay = document.getElementById('sessionExpiredOverlay');
+  if (!overlay) {
+    // Fallback for the rare case the markup isn't in the page (defensive).
+    alert('Your session expired — log in again to save your work. Your changes are preserved locally.');
+    window.location.href = 'https://onlyzines.com/';
+    return;
+  }
+  overlay.classList.remove('hidden');
+  const loginBtn = document.getElementById('sessionExpiredLoginBtn');
+  const cancelBtn = document.getElementById('sessionExpiredCancelBtn');
+  if (loginBtn) loginBtn.onclick = () => { window.location.href = 'https://onlyzines.com/'; };
+  if (cancelBtn) cancelBtn.onclick = () => { overlay.classList.add('hidden'); _sessionExpiredShown = false; };
+}
+
+// ============================================================================
+// DRAFT RESTORE TOAST — on builder load, if we find a preserved draft for the
+// current issue that is newer than the server's last-saved timestamp, offer
+// to restore it. No toast if draft is older than server (server is fresher).
+// ============================================================================
+function offerDraftRestore(issueId, serverUpdatedAtMs) {
+  const draft = draftStore.load(issueId);
+  if (!draft || !draft.state) return;
+  // If server state is strictly newer, discard the draft silently.
+  if (typeof serverUpdatedAtMs === 'number' && draft.savedAt <= serverUpdatedAtMs) {
+    draftStore.clear(issueId);
+    return;
+  }
+  const toast = document.getElementById('draftRestoreToast');
+  if (!toast) return;
+  toast.classList.remove('hidden');
+  const restoreBtn = document.getElementById('draftRestoreYesBtn');
+  const discardBtn = document.getElementById('draftRestoreNoBtn');
+  if (restoreBtn) restoreBtn.onclick = () => {
+    try { builder.loadState(draft.state); } catch (e) { console.error('Draft restore failed:', e); }
+    draftStore.clear(issueId);
+    toast.classList.add('hidden');
+    // Mark dirty so the restored state gets pushed to backend on next save.
+    persistenceState.isDirty = true;
+    updateSaveStatus('Restored — save to keep');
+  };
+  if (discardBtn) discardBtn.onclick = () => {
+    draftStore.clear(issueId);
+    toast.classList.add('hidden');
+  };
 }
 
 // Scan all elements for data URLs and upload to R2 before save.
@@ -918,13 +1109,22 @@ async function saveNow() {
   }
 
   let success = false;
-  
+
   if (persistenceState.mode === 'api' && persistenceState.issueId) {
     success = await apiAdapter.save(persistenceState.issueId, builderState);
+    // Layered draft preservation:
+    //   success → clear any stale draft so we never resurrect zombies on next load
+    //   failure WITH terminal auth expiry → stash the draft & surface the modal
+    if (success) {
+      draftStore.clear(persistenceState.issueId);
+    } else if (apiAdapter.sessionExpired()) {
+      draftStore.preserve(persistenceState.issueId, builderState);
+      showSessionExpiredModal();
+    }
   } else {
     success = localAdapter.save('draft', builderState);
   }
-  
+
   persistenceState.isSaving = false;
   // Only clear dirty flag if save succeeded. If new edits arrived during the save
   // (isDirty was re-set by scheduleAutosave), preserve the dirty flag.
@@ -932,7 +1132,7 @@ async function saveNow() {
     persistenceState.isDirty = false;
   }
   persistenceState._dirtyDuringSave = false;
-  
+
   updateSaveStatus(success ? 'Saved' : 'Save failed');
 
   if (success) {
@@ -961,6 +1161,11 @@ function scheduleAutosave() {
 }
 
 async function bootstrapPersistence() {
+  // Wire the apiAdapter's session-expiry hook to the UI.
+  // When a refresh ultimately fails (401 from /api/auth/refresh), the adapter
+  // calls this once; draft is preserved in saveNow/publishIssue error paths.
+  apiAdapter._onSessionExpired = showSessionExpiredModal;
+
   // Parse URL for API mode
   const params = new URLSearchParams(window.location.search);
   const issueId = params.get('issueId');
@@ -1013,11 +1218,21 @@ async function bootstrapPersistence() {
     if (loaded && loaded.state && loaded.state.pages) {
       builder.loadState(loaded.state);
       updateSaveStatus('Loaded');
-      
+
+      // If a local draft was preserved from a prior session (usually because of
+      // a session-expiry event), offer to restore it — but only if it's newer
+      // than what the server has. This is the other half of the Pete & Clive
+      // "preserve first, decide UI later" guardrail.
+      try {
+        const serverMs = loaded.updatedAt ? new Date(loaded.updatedAt).getTime() : null;
+        offerDraftRestore(persistenceState.issueId, serverMs);
+      } catch (e) { /* non-critical */ }
+
       // Track publish state for the Publish/Update button
       apiAdapter.publishedAt = loaded.publishedAt || null;
       apiAdapter.issueNumber = loaded.issueNumber || null;
       apiAdapter.zineSlug = loaded.zine?.slug || null;
+      apiAdapter.zineVisibility = loaded.zine?.visibility || 'UNLISTED';
       apiAdapter.publisherHandle = null;
       apiAdapter.publicUrl = null;
 
@@ -1096,7 +1311,7 @@ function showPublishModal(title, message, url) {
   const overlay = document.createElement('div');
   overlay.className = 'publish-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-  
+
   let urlHtml = '';
   if (url) {
     urlHtml = `
@@ -1106,16 +1321,73 @@ function showPublishModal(title, message, url) {
       </div>
     `;
   }
-  
+
+  // Visibility indicator — only show on successful publish (when we have a URL)
+  let visibilityHtml = '';
+  if (url && apiAdapter.zineId) {
+    const vis = apiAdapter.zineVisibility || 'UNLISTED';
+    const isPublic = vis === 'PUBLIC';
+    const statusText = isPublic
+      ? 'Public — anyone can read this zine'
+      : 'Private — collectors must request access to read';
+    const toggleLabel = isPublic ? 'Make Private' : 'Make Public';
+    visibilityHtml = `
+      <div class="publish-modal-visibility">
+        <span class="visibility-dot ${isPublic ? 'public' : 'unlisted'}"></span>
+        <span class="visibility-text" id="visibilityStatus">${statusText}</span>
+      </div>
+      <button class="publish-modal-toggle" id="visibilityToggle" onclick="toggleZineVisibility(this)">${toggleLabel}</button>
+    `;
+  }
+
   overlay.innerHTML = `
     <div class="publish-modal">
       <h3>${title}</h3>
       <p>${message}</p>
       ${urlHtml}
+      ${visibilityHtml}
       <button class="publish-modal-close" onclick="this.closest('.publish-modal-overlay').remove()">Done</button>
     </div>
   `;
   document.body.appendChild(overlay);
+}
+
+async function toggleZineVisibility(btn) {
+  if (!apiAdapter.zineId) return;
+  const current = apiAdapter.zineVisibility || 'UNLISTED';
+  const next = current === 'PUBLIC' ? 'UNLISTED' : 'PUBLIC';
+
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+
+  try {
+    const res = await apiAdapter.fetch(`${API_BASE}/api/publisher/zines/${apiAdapter.zineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visibility: next }),
+    });
+    if (!res || !res.ok) throw new Error('Failed to update visibility');
+
+    apiAdapter.zineVisibility = next;
+    const isPublic = next === 'PUBLIC';
+    const dot = document.querySelector('.visibility-dot');
+    const status = document.getElementById('visibilityStatus');
+    if (dot) { dot.className = 'visibility-dot ' + (isPublic ? 'public' : 'unlisted'); }
+    if (status) {
+      status.textContent = isPublic
+        ? 'Public — anyone can read this zine'
+        : 'Private — collectors must request access to read';
+    }
+    btn.textContent = isPublic ? 'Make Private' : 'Make Public';
+    btn.disabled = false;
+  } catch (e) {
+    console.error('Visibility toggle error:', e);
+    btn.textContent = 'Failed — try again';
+    btn.disabled = false;
+    setTimeout(() => {
+      const isPublic = (apiAdapter.zineVisibility || 'UNLISTED') === 'PUBLIC';
+      btn.textContent = isPublic ? 'Make Private' : 'Make Public';
+    }, 2000);
+  }
 }
 
 async function publishIssue() {
@@ -1221,7 +1493,20 @@ async function publishIssue() {
     
   } catch (err) {
     console.error('Publish error:', err);
-    showPublishModal('Publish Failed', err.message, null);
+    // Preserve-then-decide per Pete & Clive's guardrail.
+    if (apiAdapter.sessionExpired()) {
+      // Terminal auth failure — stash the draft locally before any UI, then surface
+      // the session-expired modal instead of the misleading "Publish Failed" dialog.
+      try {
+        const liveState = builder.getState();
+        draftStore.preserve(persistenceState.issueId, liveState);
+      } catch (e) { /* preservation is best-effort */ }
+      showSessionExpiredModal();
+    } else {
+      // Non-auth failure (network blip, 5xx, validation, etc.) — keep the existing
+      // generic modal. Those errors are genuinely "publish failed."
+      showPublishModal('Publish Failed', err.message, null);
+    }
     btn.textContent = originalText;
     btn.disabled = false;
   }

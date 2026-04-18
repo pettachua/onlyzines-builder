@@ -344,6 +344,35 @@ html.skip-gate .app{display:flex!important}
 .publish-modal-url button:hover{background:#333}
 .publish-modal-close{margin-top:12px;padding:8px 24px;background:none;border:1px solid #ddd;border-radius:6px;font-size:13px;cursor:pointer;color:#666}
 .publish-modal-close:hover{background:#f5f3ee}
+/* Session-expired modal — shown on terminal auth failure; matches publish-modal look */
+.session-expired-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:10001;display:flex;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif}
+.session-expired-overlay.hidden{display:none}
+.session-expired-modal{background:#fff;border-radius:12px;padding:32px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+.session-expired-modal h3{margin:0 0 8px;font-size:18px;color:#111}
+.session-expired-modal p{margin:0 0 20px;font-size:13px;color:#666;line-height:1.5}
+.session-expired-actions{display:flex;gap:10px;justify-content:center}
+.session-expired-actions button{padding:10px 20px;border-radius:6px;font-size:13px;cursor:pointer;border:none;font-family:inherit}
+.session-expired-primary{background:#111;color:#fff}
+.session-expired-primary:hover{background:#333}
+.session-expired-secondary{background:none;border:1px solid #ddd;color:#666}
+.session-expired-secondary:hover{background:#f5f3ee}
+/* Draft restore toast — shown on builder load when an unsaved local draft is newer than the server */
+.draft-restore-toast{position:fixed;top:80px;right:24px;z-index:9999;background:#fff;border:1px solid #e5e0d4;border-radius:10px;padding:14px 18px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-width:340px;font-family:Inter,system-ui,sans-serif}
+.draft-restore-toast.hidden{display:none}
+.draft-restore-toast p{margin:0 0 10px;font-size:13px;color:#333;line-height:1.4}
+.draft-restore-actions{display:flex;gap:8px}
+.draft-restore-actions button{flex:1;padding:7px 12px;border-radius:5px;font-size:12px;cursor:pointer;border:none;font-family:inherit}
+.draft-restore-yes{background:#111;color:#fff}
+.draft-restore-yes:hover{background:#333}
+.draft-restore-no{background:none;border:1px solid #ddd;color:#666}
+.draft-restore-no:hover{background:#f5f3ee}
+.publish-modal-visibility{display:flex;align-items:center;justify-content:center;gap:6px;margin:12px 0 4px;font-size:12px;color:#555}
+.visibility-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.visibility-dot.public{background:#34a853}
+.visibility-dot.unlisted{background:#f59e0b}
+.publish-modal-toggle{margin:4px auto 8px;padding:5px 14px;background:none;border:1px solid #ddd;border-radius:6px;font-size:11px;cursor:pointer;color:#666}
+.publish-modal-toggle:hover{border-color:#999;color:#333}
+.publish-modal-toggle:disabled{opacity:.5;cursor:default}
 .publish-bar{position:fixed;bottom:0;left:0;right:0;height:34px;background:#f5f4f2;border-top:1px solid #e0ddd8;display:none;align-items:center;justify-content:center;gap:10px;z-index:500;font-size:11px;color:#999}
 .publish-bar.visible{display:flex}
 .publish-bar-label{letter-spacing:0.02em}
@@ -547,6 +576,29 @@ html.skip-gate .app{display:flex!important}
 <div class="builder-loading-overlay hidden" id="builderLoadingOverlay">
   <div class="builder-loading-spinner"></div>
   <div class="loading-text">Loading your zine...</div>
+</div>
+
+<!-- Session-expired modal: shown ONLY on terminal auth failure (refresh token dead).
+     NOT for network blips, 5xx, or ordinary 401s that successfully re-auth.
+     Draft is already preserved locally before this shows. -->
+<div id="sessionExpiredOverlay" class="session-expired-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sessionExpiredTitle">
+  <div class="session-expired-modal">
+    <h3 id="sessionExpiredTitle">Your session expired</h3>
+    <p>Log in again to save your work &mdash; it's preserved locally and nothing's lost.</p>
+    <div class="session-expired-actions">
+      <button id="sessionExpiredLoginBtn" class="session-expired-primary" type="button">Log in</button>
+      <button id="sessionExpiredCancelBtn" class="session-expired-secondary" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Draft restore toast: offered on builder load when a preserved draft is newer than server state. -->
+<div id="draftRestoreToast" class="draft-restore-toast hidden" role="status" aria-live="polite">
+  <p>Found unsaved changes from your last session. Restore them?</p>
+  <div class="draft-restore-actions">
+    <button id="draftRestoreYesBtn" class="draft-restore-yes" type="button">Restore</button>
+    <button id="draftRestoreNoBtn" class="draft-restore-no" type="button">Discard</button>
+  </div>
 </div>
 
 <script src="constants.js"></script>
