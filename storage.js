@@ -1287,14 +1287,16 @@ function updatePublishButton() {
   const btn = document.getElementById('btnPublish');
   if (!btn) return;
 
-  // Phase B: 📄 prefix on both states. Update phrasing is tighter than 'Update your published zine'.
-  if (apiAdapter.publishedAt) {
-    btn.textContent = '📄 Update';
-    btn.title = 'Update your published zine';
+  // Phase B.1: btn now contains <img><span>...</span> from initIcons. Update the span text so
+  // we don't wipe the icon. Fallback to textContent if initIcons hasn't run (e.g. very early load).
+  const span = btn.querySelector('span');
+  const label = apiAdapter.publishedAt ? 'Update' : 'Publish';
+  if (span) {
+    span.textContent = label;
   } else {
-    btn.textContent = '📄 Publish';
-    btn.title = 'Publish this issue';
+    btn.textContent = label;
   }
+  btn.title = apiAdapter.publishedAt ? 'Update your published zine' : 'Publish this issue';
 }
 
 // Phase B: Print modal. Reuses .publish-modal-overlay/.publish-modal container from showPublishModal.

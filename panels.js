@@ -1,11 +1,24 @@
 function initIcons() {
+  // btnSave was removed in Phase A, but the guard stays in case any legacy HTML still has it.
   const saveBtn = document.getElementById('btnSave');
   const pdfBtn = document.getElementById('btnPDF');
+  const printBtn = document.getElementById('btnPrint');
+  const publishBtn = document.getElementById('btnPublish');
   if (saveBtn) {
     saveBtn.innerHTML = '<img src="' + DADA_ICONS.save + '"><span>Save</span>';
   }
+  // Phase B.1: icons shift one slot. Print gets Petta's halftone-eye custom icon.
+  // PDF inherits the old Save icon ("save a file to disk").
+  // Publish inherits the old PDF icon ("make a page live").
+  if (printBtn) {
+    printBtn.innerHTML = '<img src="' + DADA_ICONS.print + '"><span>Print</span>';
+  }
   if (pdfBtn) {
-    pdfBtn.innerHTML = '<img src="' + DADA_ICONS.pdf + '"><span>PDF</span>';
+    pdfBtn.innerHTML = '<img src="' + DADA_ICONS.save + '"><span>PDF</span>';
+  }
+  if (publishBtn) {
+    // Text starts as "Publish"; updatePublishButton() swaps only the span to "Update" when published.
+    publishBtn.innerHTML = '<img src="' + DADA_ICONS.pdf + '"><span>Publish</span>';
   }
 }
 
