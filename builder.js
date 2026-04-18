@@ -1715,6 +1715,23 @@ function setShapeColor(c) {
 }
 
 
+// Phase A — clipboard quick-action buttons live in the Tools sidebar and share
+// their handlers with the keyboard shortcuts (⌘X/⌘C/⌘V). This function syncs
+// the buttons' disabled state with current selection + clipboard contents so the
+// affordance matches what the action will actually do. Called from render() and
+// from doCopy (since Copy mutates clipboard without otherwise triggering a render).
+function updateQuickActions() {
+  const cutBtn = document.getElementById('qaCut');
+  const copyBtn = document.getElementById('qaCopy');
+  const pasteBtn = document.getElementById('qaPaste');
+  if (!cutBtn || !copyBtn || !pasteBtn) return;
+  const hasSelection = !!state.selected || (Array.isArray(state.multiSelected) && state.multiSelected.length > 0);
+  const hasClipboard = !!state.clipboard && (state.lastCopied === 'element' || state.lastCopied === 'multi');
+  cutBtn.disabled = !hasSelection;
+  copyBtn.disabled = !hasSelection;
+  pasteBtn.disabled = !hasClipboard;
+}
+
 function doCopy() {
   // Handle multi-selection copy
   if (state.multiSelected.length > 0) {
@@ -1724,15 +1741,17 @@ function doCopy() {
     state.clipboard = JSON.parse(JSON.stringify(elements));
     state.lastCopied = 'multi';
     document.getElementById('ctxMenu').classList.remove('show');
+    updateQuickActions();
     return;
   }
-  
+
   const el = getSelectedElement();
   if (el) {
     state.clipboard = JSON.parse(JSON.stringify(el));
     state.lastCopied = 'element';
   }
   document.getElementById('ctxMenu').classList.remove('show');
+  updateQuickActions();
 }
 
 function doCut() {
@@ -3083,7 +3102,15 @@ document.addEventListener('keydown', e => {
     else redo();
     return; 
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveJSON(); return; }
+  // ⌘⇧E / Ctrl+Shift+E — hidden export of the raw .zine JSON for internal/debug use.
+  // Matched before ⌘S so the shift-modifier form doesn't fall through to the autosave no-op.
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+    e.preventDefault(); saveJSON(); return;
+  }
+  // ⌘S / Ctrl+S — swallowed silently. Autosave handles persistence; the visible Save
+  // button was removed in the Phase A Tools reorg because a manual save contradicts
+  // the autosave model shipped in the Phase 1+2 session bundle.
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); return; }
   
   // Delete - handle both single and multi selection
   if ((e.key === 'Delete' || e.key === 'Backspace') && (state.selected || state.multiSelected.length > 0) && !isTyping) { 

@@ -36,6 +36,9 @@ function render() {
     renderStage();
     const _r2 = performance.now();
     renderToolsPanel();
+    // Phase A — sync clipboard quick-action buttons with latest selection state.
+    // Cheap (three DOM lookups + attribute toggles) so safe on the hot path.
+    if (typeof updateQuickActions === 'function') updateQuickActions();
     const _r3 = performance.now();
     const _total = _r3 - _r0;
     if (_total > 16) {

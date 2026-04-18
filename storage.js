@@ -1289,7 +1289,7 @@ function updatePublishButton() {
   
   if (apiAdapter.publishedAt) {
     btn.textContent = 'Update';
-    btn.title = 'Save and view your published zine';
+    btn.title = 'Update your published zine';
   } else {
     btn.textContent = 'Publish';
     btn.title = 'Publish this issue';

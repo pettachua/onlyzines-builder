@@ -63,6 +63,28 @@ html.skip-gate .app{display:flex!important}
 .sidebar-header button{background:none;border:none;font-size:18px;cursor:pointer;color:#666}
 .sidebar-content{flex:1;overflow-y:scroll;padding:10px;min-height:0;scrollbar-width:thin}
 
+/* Phase A — clipboard quick actions, always visible at top of Tools sidebar */
+.quick-actions{
+  display:grid; grid-template-columns:1fr 1fr 1fr;
+  gap:6px; padding:10px; border-bottom:1px solid #eee;
+  flex:0 0 auto;
+}
+.qa-btn{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:3px; padding:5px 2px; min-height:44px;
+  background:#fafafa; border:1px solid #e8e8e8; border-radius:4px;
+  cursor:pointer; color:#111;
+  font-family:'Space Mono', monospace;
+  font-size:8px; letter-spacing:0.6px; text-transform:uppercase;
+  transition:border-color .15s, background .15s, opacity .15s;
+}
+.qa-btn:hover:not(:disabled){border-color:#111; background:#fff;}
+.qa-btn:active:not(:disabled){transform:translateY(1px);}
+.qa-btn:disabled{opacity:0.35; cursor:default;}
+.qa-btn svg{display:block;}
+.qa-btn svg path:not([fill]),
+.qa-btn svg rect:not([fill]){fill:currentColor;}
+
 /* Accordion */
 .accordion{border:1px solid #e5e5e5;border-radius:6px;margin-bottom:8px}
 .accordion-head{padding:10px;background:#fafafa;cursor:pointer;font-size:10px;font-weight:600;text-transform:uppercase;display:flex;justify-content:space-between;border-radius:6px}
@@ -492,7 +514,6 @@ html.skip-gate .app{display:flex!important}
 <nav class="topbar-actions">
 <button class="btn" onclick="undo()" title="Undo" aria-label="Undo">↶</button>
 <button class="btn" onclick="redo()" title="Redo" aria-label="Redo">↷</button>
-<button class="btn-icon" onclick="saveJSON()" id="btnSave" aria-label="Save project">💾 Save</button>
 <button class="btn-icon" onclick="savePDF()" id="btnPDF" aria-label="Export as PDF">📄 PDF</button>
 <button class="btn btn-primary" onclick="publishIssue()" id="btnPublish" aria-label="Publish issue">Publish</button>
 </nav>
@@ -505,6 +526,33 @@ html.skip-gate .app{display:flex!important}
 <div class="stage" id="stage" role="main" aria-label="Zine page editor"></div>
 <aside class="sidebar sidebar-right" aria-label="Element tools">
 <div class="sidebar-header">Tools</div>
+<!-- Phase A: always-visible clipboard quick actions. Mirror the keyboard shortcuts
+     (⌘X/⌘C/⌘V) without replacing them. Disabled states reflect selection + clipboard. -->
+<div class="quick-actions" id="quickActions" role="group" aria-label="Clipboard actions">
+  <button class="qa-btn" id="qaCut" onclick="doCut()" aria-label="Cut selected element" title="Cut (⌘X)" disabled>
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5zM19 3l-6 6 2 2 7-7V3z"></path>
+    </svg>
+    <span>Cut</span>
+  </button>
+  <button class="qa-btn" id="qaCopy" onclick="doCopy(); updateQuickActions();" aria-label="Copy selected element" title="Copy (⌘C)" disabled>
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="3" width="12" height="14"></rect>
+      <rect x="8" y="8" width="13" height="13" fill="#fff" stroke="currentColor" stroke-width="2"></rect>
+    </svg>
+    <span>Copy</span>
+  </button>
+  <button class="qa-btn" id="qaPaste" onclick="doPaste()" aria-label="Paste from clipboard" title="Paste (⌘V)" disabled>
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="18" rx="1"></rect>
+      <rect x="8" y="2" width="8" height="4" rx="1"></rect>
+      <rect x="7" y="9" width="10" height="1.2" fill="#fff"></rect>
+      <rect x="7" y="12" width="10" height="1.2" fill="#fff"></rect>
+      <rect x="7" y="15" width="7" height="1.2" fill="#fff"></rect>
+    </svg>
+    <span>Paste</span>
+  </button>
+</div>
 <div class="sidebar-content" id="toolsPanel"></div>
 </aside>
 </div>
