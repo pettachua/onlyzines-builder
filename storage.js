@@ -1309,15 +1309,14 @@ function openPrintModal() {
   overlay.innerHTML = `
     <div class="publish-modal">
       <h3>Print</h3>
-      <p>Choose how you want this zine on paper.</p>
       <div class="print-modal-options">
         <button class="print-modal-option" id="printFlatBtn" type="button">
           <div class="print-modal-option-title">Print flat</div>
-          <div class="print-modal-option-desc">For display, moodboards, or reading in-hand. Downloads the same PDF as the PDF button.</div>
+          <div class="print-modal-option-desc">Printed as you see it.</div>
         </button>
         <button class="print-modal-option" id="printFoldBtn" type="button" disabled aria-disabled="true" title="Coming soon — fold imposition lands in the next update">
           <div class="print-modal-option-title">Print &amp; fold (True Zine)</div>
-          <div class="print-modal-option-desc">Imposed for folding into a booklet — stack, fold, done.</div>
+          <div class="print-modal-option-desc">Re-ordered for you to fold into a zine.</div>
           <span class="print-modal-option-soon">Coming soon</span>
         </button>
       </div>
