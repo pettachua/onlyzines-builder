@@ -127,94 +127,6 @@ function saveJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replace(/[^a-z0-9]/gi, '_') + '.json'; a.click();
 }
 
-// html2canvas v1.4.1 does NOT render CSS mask-image / -webkit-mask-image reliably.
-// Before capture, bake any per-image CSS mask into the alpha channel of the bitmap
-// so html2canvas receives pre-masked images with no CSS mask to ignore.
-// Pattern parallels preFilterImages — same shape, same CORS fallback.
-// MUST run AFTER preFilterImages (so any baked filter is included in what gets masked)
-// and BEFORE pdfFixImages (which only touches object-fit imgs, different set).
-async function bakeRevealMasks(container) {
-  var imgs = container.querySelectorAll('img');
-  for (var i = 0; i < imgs.length; i++) {
-    var img = imgs[i];
-    var maskStyle = img.style.maskImage || img.style.webkitMaskImage || '';
-    if (!maskStyle || maskStyle === 'none') continue;
-    var m = maskStyle.match(/url\((["']?)([^"')]+)\1\)/);
-    if (!m) continue;
-    var maskUrl = m[2];
-    // Wait for image bitmap to be ready
-    if (!img.complete || img.naturalWidth === 0) {
-      await new Promise(function (resolve) {
-        img.onload = resolve;
-        img.onerror = resolve;
-        setTimeout(resolve, 5000);
-      });
-    }
-    if (img.naturalWidth === 0) {
-      console.warn('bakeRevealMasks: image never loaded', img.src && img.src.substring(0, 60));
-      continue;
-    }
-    // Load the mask
-    var maskImg = new Image();
-    maskImg.crossOrigin = 'anonymous';
-    await new Promise(function (resolve) {
-      maskImg.onload = resolve;
-      maskImg.onerror = function () {
-        console.warn('bakeRevealMasks: mask load failed', maskUrl.substring(0, 60));
-        resolve();
-      };
-      maskImg.src = maskUrl;
-      setTimeout(resolve, 5000);
-    });
-    if (maskImg.naturalWidth === 0) continue;
-    // Compose: draw image, then mask with destination-in (keep image only where mask has alpha)
-    try {
-      var c = document.createElement('canvas');
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      var ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      ctx.globalCompositeOperation = 'destination-in';
-      ctx.drawImage(maskImg, 0, 0, c.width, c.height);
-      img.src = c.toDataURL('image/png');
-      img.style.maskImage = '';
-      img.style.webkitMaskImage = '';
-      img.style.maskSize = '';
-      img.style.webkitMaskSize = '';
-      img.style.maskRepeat = '';
-      img.style.webkitMaskRepeat = '';
-    } catch (e) {
-      // CORS-tainted canvas fallback (mirrors preFilterImages pattern)
-      try {
-        var corsImg = new Image();
-        corsImg.crossOrigin = 'anonymous';
-        await new Promise(function (resolve, reject) {
-          corsImg.onload = resolve;
-          corsImg.onerror = reject;
-          var bust = img.src.indexOf('?') === -1 ? '?' : '&';
-          corsImg.src = img.src + bust + '_cors=' + Date.now();
-        });
-        var c2 = document.createElement('canvas');
-        c2.width = corsImg.naturalWidth;
-        c2.height = corsImg.naturalHeight;
-        var ctx2 = c2.getContext('2d');
-        ctx2.drawImage(corsImg, 0, 0, c2.width, c2.height);
-        ctx2.globalCompositeOperation = 'destination-in';
-        ctx2.drawImage(maskImg, 0, 0, c2.width, c2.height);
-        img.src = c2.toDataURL('image/png');
-        img.style.maskImage = '';
-        img.style.webkitMaskImage = '';
-        img.style.maskSize = '';
-        img.style.webkitMaskSize = '';
-        img.style.maskRepeat = '';
-        img.style.webkitMaskRepeat = '';
-      } catch (e2) {
-        console.warn('bakeRevealMasks: could not bake mask for', img.src && img.src.substring(0, 60), e2);
-      }
-    }
-  }
-}
-
 // html2canvas v1.4.1 does NOT render CSS filter: (brightness, contrast, saturate).
 // Before capture, bake any per-image CSS filters into the pixel data so html2canvas
 // receives pre-filtered images with no CSS filter to ignore.
@@ -372,7 +284,6 @@ async function captureCoverImage() {
   }
 
   await preFilterImages(temp);
-  await bakeRevealMasks(temp);
   pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -457,7 +368,6 @@ async function savePDF() {
       }
 
       await preFilterImages(temp);
-      await bakeRevealMasks(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -713,7 +623,6 @@ async function savePDFFold(paperSize) {
       }
 
       await preFilterImages(temp);
-      await bakeRevealMasks(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
