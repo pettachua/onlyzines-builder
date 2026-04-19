@@ -148,6 +148,16 @@ async function preFilterImages(container) {
       ctx.drawImage(img, 0, 0, c.width, c.height);
       img.src = c.toDataURL('image/png');
       img.style.filter = '';
+      // Await the new post-bake src to fully decode. Without this, html2canvas
+      // can capture before the new src is ready → renders the img blank → grey
+      // parent .element.image background (#e0e0e0) shows through in the PDF.
+      await new Promise(function (resolve) {
+        if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+        var done = false;
+        img.onload = function () { if (!done) { done = true; resolve(); } };
+        img.onerror = function () { if (!done) { done = true; resolve(); } };
+        setTimeout(function () { if (!done) { done = true; resolve(); } }, 3000);
+      });
     } catch (e) {
       try {
         var corsImg = new Image();
@@ -166,6 +176,15 @@ async function preFilterImages(container) {
         ctx2.drawImage(corsImg, 0, 0, c2.width, c2.height);
         img.src = c2.toDataURL('image/png');
         img.style.filter = '';
+        // Same await as the main path — ensure the new baked src is decoded
+        // before we hand the DOM to html2canvas.
+        await new Promise(function (resolve) {
+          if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+          var done = false;
+          img.onload = function () { if (!done) { done = true; resolve(); } };
+          img.onerror = function () { if (!done) { done = true; resolve(); } };
+          setTimeout(function () { if (!done) { done = true; resolve(); } }, 3000);
+        });
       } catch (e2) {
         console.warn('preFilterImages: could not bake filter for', img.src && img.src.substring(0, 60), e2);
       }
@@ -257,6 +276,10 @@ async function captureCoverImage() {
     pageDiv.classList.remove('active-page');
     temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
   }
+  // Strip the .element.image #e0e0e0 background so that if any inner <img>
+  // fails to render in html2canvas, the page paper color shows through
+  // instead of a grey rectangle. CSS source: index.html line 165.
+  temp.querySelectorAll('.element.image').forEach(function (el) { el.style.background = 'transparent'; });
 
   // Force CORS reload: set crossOrigin and cache-bust all external images
   // so html2canvas can access them after pdfFixImages converts to background-image
@@ -353,6 +376,10 @@ async function savePDF() {
           pageDiv.classList.remove('paper-' + textureType);
         }
       }
+      // Strip the .element.image #e0e0e0 background so that if any inner <img>
+      // fails to render in html2canvas, the page paper color shows through
+      // instead of a grey rectangle. CSS source: index.html line 165.
+      temp.querySelectorAll('.element.image').forEach(function (el) { el.style.background = 'transparent'; });
 
       // Wait for images
       const imgs = temp.querySelectorAll('img');
