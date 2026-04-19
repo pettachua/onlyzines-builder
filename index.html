@@ -418,6 +418,13 @@ html.skip-gate .app{display:flex!important}
 .print-modal-option[disabled]:hover{border-color:#ddd;background:#f5f4f2}
 .print-modal-option[disabled] .print-modal-option-title{color:#999}
 .print-modal-option-soon{display:inline-block;margin-top:8px;padding:2px 7px;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#888;background:#ebe8e1;border-radius:3px;font-family:'Space Mono',monospace,system-ui}
+/* Phase C: paper size toggle + N.B. note inside Print & fold option */
+.print-modal-option-note{margin-top:10px;font-size:11px;color:#888;line-height:1.4;font-style:italic}
+.print-modal-paper-toggle{margin-top:10px;display:inline-flex;gap:0;border:1px solid #ddd;border-radius:6px;overflow:hidden}
+.print-modal-paper-toggle .paper-opt{padding:5px 14px;font-size:11px;background:#fff;border:0;cursor:pointer;font-family:'Space Mono',monospace,system-ui;letter-spacing:.04em;color:#666;transition:background .12s,color .12s}
+.print-modal-paper-toggle .paper-opt:not(:last-child){border-right:1px solid #ddd}
+.print-modal-paper-toggle .paper-opt.selected{background:#111;color:#fff}
+.print-modal-paper-toggle .paper-opt:hover:not(.selected){background:#f5f4f2}
 </style>
 </head>
 <body>

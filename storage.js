@@ -511,6 +511,229 @@ async function savePDF() {
   }
 }
 
+// ============ FOLD IMPOSITION (Phase C) ============
+//
+// Saddle-stitch imposition for a booklet-ready PDF.
+// Input: N = padded page count (MUST be a multiple of 4).
+// Output: ordered array of [leftPage, rightPage] tuples in PDF page order.
+//
+// Page numbers are 1-BASED logical pages throughout this helper (1 = front cover,
+// N = back cover). Conversion to array index (state.pages[i-1]) happens at render
+// time in captureLogicalPage below — this is the single 1-based <-> 0-based boundary.
+//
+// Saddle-stitch formula for sheet s (0-based, s=0 = cover sheet, s increases inward):
+//   Outer side (front of sheet): [N - 2s,    2s + 1]
+//   Inner side (back  of sheet): [2s + 2,    N - 2s - 1]
+//
+// PDF page order: innermost sheet first (back, then front), cover sheet last
+// (back, then front). On a face-down duplex printer (~80% of home printers) this
+// produces a stack with the cover-outer face UP on top -> grab, fold in half, done.
+// No manual re-ordering by the user. Face-up printers will need the "reverse page
+// order" driver option, but we intentionally don't note this in the UI per P&C.
+function getImposedSheets(N) {
+  if (N % 4 !== 0) {
+    throw new Error('getImposedSheets: N must be multiple of 4, got ' + N);
+  }
+  const numSheets = N / 4;
+  const sheets = [];
+  for (let s = 0; s < numSheets; s++) {
+    sheets.push({
+      front: [N - 2 * s, 2 * s + 1],    // outer side of sheet s (1-based page nums)
+      back:  [2 * s + 2, N - 2 * s - 1] // inner side of sheet s (1-based page nums)
+    });
+  }
+  // Build PDF page order: innermost sheet first, cover last. Per-sheet: back then front.
+  const pdfPages = [];
+  for (let s = numSheets - 1; s >= 0; s--) {
+    pdfPages.push(sheets[s].back);
+    pdfPages.push(sheets[s].front);
+  }
+  return pdfPages;
+}
+
+// savePDFFold(paperSize) — paperSize is 'A4' or 'LETTER'.
+// Parallel shape to savePDF(): same selection-state save/restore, same ensurePDFLibs,
+// same capturePage helper (duplicated verbatim rather than extracted, to avoid any
+// risk of regressing the existing flat-PDF path). Only the output loop differs.
+async function savePDFFold(paperSize) {
+  const btnPrint = document.getElementById('btnPrint');
+  const origHTML = btnPrint ? btnPrint.innerHTML : '';
+  // Save editor selection state BEFORE try so catch can restore it
+  const savedSelected = state.selected;
+  const savedMultiSelected = state.multiSelected;
+  const savedActivePage = state.activePage;
+  const savedPositionMode = state.imagePositionMode;
+  state.selected = null;
+  state.multiSelected = [];
+  state.activePage = null;
+  state.imagePositionMode = null;
+  try {
+    if (btnPrint) { btnPrint.disabled = true; btnPrint.innerHTML = '⏳ Loading...'; }
+
+    await ensurePDFLibs();
+
+    const { jsPDF } = window.jspdf;
+    const PW = PAGE_W;
+    const PH = PAGE_H;
+    const SW = SPREAD_W;
+
+    // --- Pad to multiple of 4 ---
+    const realCount = state.pages.length;
+    const N = Math.ceil(realCount / 4) * 4;
+    const paddedBlanks = N - realCount;
+
+    // --- Compute imposition map (1-based logical page numbers) ---
+    const pdfPages = getImposedSheets(N);
+    console.log('[savePDFFold] N=' + N + ' (real=' + realCount + ', paddedBlanks=' + paddedBlanks + '), paperSize=' + paperSize + ', pdfPages=', pdfPages);
+
+    // --- Helper: render one builder page into an offscreen div and capture to canvas ---
+    // (Duplicate of savePDF's inner capturePage, intentionally. Keeping parallel.)
+    async function capturePage(page, width, height) {
+      const temp = document.createElement('div');
+      temp.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + width + 'px;height:' + height + 'px;overflow:hidden;pointer-events:none;background:' + (page.paper || '#f5f3ee');
+      temp.innerHTML = renderPageElement(page);
+      document.body.appendChild(temp);
+
+      temp.querySelectorAll('.handle, .crop-handle').forEach(el => el.remove());
+      temp.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+      temp.querySelectorAll('.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+
+      const pageDiv = temp.querySelector('.page');
+      let textureType = null;
+      if (pageDiv) {
+        pageDiv.classList.remove('active-page');
+        temp.querySelectorAll('.active-page-indicator').forEach(el => el.remove());
+        const cl = pageDiv.className;
+        const m = cl.match(/paper-(smooth|matte|newsprint|cardstock|riso|distressed|patina|saigon)/);
+        if (m) {
+          textureType = m[1];
+          pageDiv.classList.remove('paper-' + textureType);
+        }
+      }
+
+      const imgs = temp.querySelectorAll('img');
+      if (imgs.length > 0) {
+        await Promise.all(Array.from(imgs).map(img => {
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+          return new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = () => { console.warn('Fold PDF: img load failed', img.src?.substring(0,60)); resolve(); };
+            setTimeout(resolve, 5000);
+          });
+        }));
+      }
+
+      await preFilterImages(temp);
+      pdfFixImages(temp);
+      await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
+
+      let canvas;
+      try {
+        canvas = await html2canvas(temp, {
+          scale: 2, width: width, height: height,
+          backgroundColor: page.paper || '#f5f3ee',
+          useCORS: true, allowTaint: true, logging: false
+        });
+      } catch (err) {
+        console.error('html2canvas error (savePDFFold):', err);
+        canvas = document.createElement('canvas');
+        canvas.width = width * 2; canvas.height = height * 2;
+      }
+      document.body.removeChild(temp);
+
+      // Note: deliberately NOT applying texture overlay on fold output. Booklet print
+      // semantics prefer clean consistent pages — textured output would look noisy
+      // and inconsistent next to blank padded pages. Flat PDF still gets textures.
+      return canvas;
+    }
+
+    // --- Helper: pure white blank canvas for padded positions ---
+    // First-class blank per P&C Guardrail 2: no DOM, no renderPageElement path,
+    // no inherited background/texture/element, no transparency. Pure #ffffff fill
+    // at the same 2x scale as capturePage's output. If a future change decides to
+    // route blanks through renderPageElement instead, the minimum safe fake-page
+    // object would be: { id: '_blank_' + idx, paper: '#ffffff', texture: null,
+    // elements: [] } — renderer.js:279-306 reads id, texture, paper, elements.
+    function blankWhiteCanvas(width, height) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width * 2;
+      canvas.height = height * 2;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+
+    // --- The ONE 1-based <-> 0-based conversion point ---
+    async function captureLogicalPage(pageNum1Based) {
+      if (pageNum1Based > realCount) {
+        return blankWhiteCanvas(PW, PH);
+      }
+      return capturePage(state.pages[pageNum1Based - 1], PW, PH);
+    }
+
+    // --- Build PDF in chosen paper size, landscape ---
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: paperSize === 'A4' ? 'a4' : 'letter'
+    });
+    const paperW_mm = pdf.internal.pageSize.getWidth();
+    const paperH_mm = pdf.internal.pageSize.getHeight();
+    const margin_mm = 5;
+
+    // Scale-to-fit the SW×PH spread onto paper, centered with margin
+    const drawW = paperW_mm - 2 * margin_mm;
+    const drawH = paperH_mm - 2 * margin_mm;
+    const scaleFit = Math.min(drawW / SW, drawH / PH);
+    const outW = SW * scaleFit;
+    const outH = PH * scaleFit;
+    const outX = (paperW_mm - outW) / 2;
+    const outY = (paperH_mm - outH) / 2;
+
+    for (let idx = 0; idx < pdfPages.length; idx++) {
+      const [leftNum, rightNum] = pdfPages[idx];
+      if (btnPrint) btnPrint.innerHTML = '⏳ ' + (idx + 1) + '/' + pdfPages.length + '...';
+
+      if (idx > 0) {
+        pdf.addPage(paperSize === 'A4' ? 'a4' : 'letter', 'landscape');
+      }
+
+      const leftCanvas = await captureLogicalPage(leftNum);
+      const rightCanvas = await captureLogicalPage(rightNum);
+
+      // Compose spread canvas (SW × PH at 2x)
+      const spreadCanvas = document.createElement('canvas');
+      spreadCanvas.width = SW * 2;
+      spreadCanvas.height = PH * 2;
+      const sCtx = spreadCanvas.getContext('2d');
+      sCtx.drawImage(leftCanvas, 0, 0, PW * 2, PH * 2);
+      sCtx.drawImage(rightCanvas, PW * 2, 0, PW * 2, PH * 2);
+
+      pdf.addImage(spreadCanvas.toDataURL('image/jpeg', 0.92), 'JPEG', outX, outY, outW, outH);
+    }
+
+    const title = document.querySelector('.topbar-title')?.textContent || 'Untitled Zine';
+    pdf.save(title.replace(/[^a-z0-9]/gi, '_') + '.fold.pdf');
+
+    // Restore editor selection state
+    state.selected = savedSelected;
+    state.multiSelected = savedMultiSelected;
+    state.activePage = savedActivePage;
+    state.imagePositionMode = savedPositionMode;
+
+    if (btnPrint) { btnPrint.innerHTML = origHTML; btnPrint.disabled = false; }
+  } catch (err) {
+    console.error('Fold PDF export failed:', err);
+    alert('Fold PDF export failed: ' + (err.message || err));
+    state.selected = savedSelected;
+    state.multiSelected = savedMultiSelected;
+    state.activePage = savedActivePage;
+    state.imagePositionMode = savedPositionMode;
+    if (btnPrint) { btnPrint.innerHTML = origHTML; btnPrint.disabled = false; }
+  }
+}
+
 // ============ PASSWORD & INIT ============
 function checkPassword() {
   if (document.getElementById('pwInput').value === PASSWORD) {
@@ -1299,10 +1522,13 @@ function updatePublishButton() {
   btn.title = apiAdapter.publishedAt ? 'Update your published zine' : 'Publish this issue';
 }
 
-// Phase B: Print modal. Reuses .publish-modal-overlay/.publish-modal container from showPublishModal.
+// Phase B + C: Print modal. Reuses .publish-modal-overlay/.publish-modal container from showPublishModal.
 // "Print flat" is a thin wrapper around the existing savePDF() — no forked export logic.
-// "Print & fold (True Zine)" is explicitly disabled until Phase C ships the fold imposition.
+// "Print & fold (True Zine)" calls savePDFFold() with the chosen paper size (Phase C).
 function openPrintModal() {
+  // Locale-based default paper size: en-US/en-CA -> Letter, else A4.
+  const defaultPaper = /^en-(US|CA)/i.test(navigator.language || '') ? 'LETTER' : 'A4';
+
   const overlay = document.createElement('div');
   overlay.className = 'publish-modal-overlay';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -1314,21 +1540,53 @@ function openPrintModal() {
           <div class="print-modal-option-title">Print flat</div>
           <div class="print-modal-option-desc">Printed as you see it.</div>
         </button>
-        <button class="print-modal-option" id="printFoldBtn" type="button" disabled aria-disabled="true" title="Coming soon — fold imposition lands in the next update">
+        <div class="print-modal-option" id="printFoldBtn" role="button" tabindex="0" aria-label="Print and fold as zine">
           <div class="print-modal-option-title">Print &amp; fold (True Zine)</div>
           <div class="print-modal-option-desc">Re-ordered for you to fold into a zine.</div>
-          <span class="print-modal-option-soon">Coming soon</span>
-        </button>
+          <div class="print-modal-paper-toggle" role="radiogroup" aria-label="Paper size">
+            <button type="button" class="paper-opt ${defaultPaper === 'A4' ? 'selected' : ''}" data-size="A4" role="radio" aria-checked="${defaultPaper === 'A4'}">A4</button>
+            <button type="button" class="paper-opt ${defaultPaper === 'LETTER' ? 'selected' : ''}" data-size="LETTER" role="radio" aria-checked="${defaultPaper === 'LETTER'}">Letter</button>
+          </div>
+          <div class="print-modal-option-note">N.B. make sure your printer is set to double-sided print.</div>
+        </div>
       </div>
       <button class="publish-modal-close" onclick="this.closest('.publish-modal-overlay').remove()">Done</button>
     </div>
   `;
   document.body.appendChild(overlay);
+
   // Print flat → close modal, then call existing savePDF() unchanged.
   const flatBtn = overlay.querySelector('#printFlatBtn');
   flatBtn.addEventListener('click', () => {
     overlay.remove();
     savePDF();
+  });
+
+  // Paper-size toggle — click stopPropagation so it doesn't trigger the parent fold option.
+  let selectedPaper = defaultPaper;
+  overlay.querySelectorAll('.paper-opt').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedPaper = opt.dataset.size;
+      overlay.querySelectorAll('.paper-opt').forEach(o => {
+        o.classList.toggle('selected', o === opt);
+        o.setAttribute('aria-checked', o === opt ? 'true' : 'false');
+      });
+    });
+  });
+
+  // Print & fold → close modal, call savePDFFold with the selected paper size.
+  const foldBtn = overlay.querySelector('#printFoldBtn');
+  const triggerFold = () => {
+    overlay.remove();
+    savePDFFold(selectedPaper);
+  };
+  foldBtn.addEventListener('click', triggerFold);
+  foldBtn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      triggerFold();
+    }
   });
 }
 
