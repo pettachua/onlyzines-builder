@@ -584,7 +584,6 @@ async function savePDFFold(paperSize) {
 
     // --- Compute imposition map (1-based logical page numbers) ---
     const pdfPages = getImposedSheets(N);
-    console.log('[savePDFFold] N=' + N + ' (real=' + realCount + ', paddedBlanks=' + paddedBlanks + '), paperSize=' + paperSize + ', pdfPages=', pdfPages);
 
     // --- Helper: render one builder page into an offscreen div and capture to canvas ---
     // (Duplicate of savePDF's inner capturePage, intentionally. Keeping parallel.)
