@@ -127,142 +127,48 @@ function saveJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replace(/[^a-z0-9]/gi, '_') + '.json'; a.click();
 }
 
-// EXPORT PIPELINE ONLY — replaces each <img> in the capture clone with a
-// <canvas> that has all visual effects baked in (CSS filter + revealMask).
-// This bypasses html2canvas v1.4.1 bugs with CSS mask-image (issue #2814),
-// CSS filter on <img>, and async img.src re-decoding. html2canvas renders
-// <canvas> children reliably — verified live against the builder.
-//
-// MUST only be called on the offscreen capture clone. NEVER on the live
-// editor DOM. Replaces the older preFilterImages helper.
-//
-// Guardrails per P&C:
-//  - Export clone only (never mutate live editor)
-//  - Preserve the rendered BOX (display width/height/position from CSS,
-//    not the image's natural dimensions)
-//  - Effects in browser render order: image (with object-fit crop) →
-//    filter baked → mask composite → opacity preserved at style level
-//  - Fast no-op on containers with no <img> nodes
-//  - Fail soft per image: log and leave img in place if anything throws
-async function rasterizeImages(container) {
+// html2canvas v1.4.1 does NOT render CSS filter: (brightness, contrast, saturate).
+// Before capture, bake any per-image CSS filters into the pixel data so html2canvas
+// receives pre-filtered images with no CSS filter to ignore.
+// MUST run before pdfFixImages — while images are still <img> elements.
+async function preFilterImages(container) {
   var imgs = container.querySelectorAll('img');
-  if (imgs.length === 0) return;
-
-  for (var idx = 0; idx < imgs.length; idx++) {
-    var img = imgs[idx];
+  for (var i = 0; i < imgs.length; i++) {
+    var img = imgs[i];
+    var f = img.style.filter;
+    if (!f) continue;
+    if (!/brightness|contrast|saturate/.test(f)) continue;
+    if (!img.complete || img.naturalWidth === 0) continue;
     try {
-      // Wait for img to finish loading (data URLs usually instant, but be safe)
-      if (!img.complete || img.naturalWidth === 0) {
-        await new Promise(function (resolve) {
-          var done = function () { resolve(); };
-          img.addEventListener('load', done, { once: true });
-          img.addEventListener('error', done, { once: true });
-          setTimeout(done, 3000);
-        });
-      }
-      if (img.naturalWidth === 0) continue; // unloadable; leave as-is
-
-      // Rendered box — this is what html2canvas will see, so rasterize to match
-      var rect = img.getBoundingClientRect();
-      var displayW = Math.max(1, Math.round(rect.width));
-      var displayH = Math.max(1, Math.round(rect.height));
-      if (displayW === 0 || displayH === 0) continue;
-
-      // Read effects from inline style
-      var filterStyle = img.style.filter || '';
-      var hasFilter = /brightness|contrast|saturate/.test(filterStyle);
-      var maskImageStyle = img.style.maskImage || img.style.webkitMaskImage || '';
-      var maskUrlMatch = maskImageStyle.match(/url\((["']?)([^"')]+)\1\)/);
-      var maskUrl = maskUrlMatch ? maskUrlMatch[2] : null;
-      var fitMode = img.style.objectFit || '';
-
-      // Compute drawImage rects — default is stretch to fill (locked composition)
-      var sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
-      var dx = 0, dy = 0, dw = displayW, dh = displayH;
-      if (fitMode === 'cover') {
-        var elAR_cover = displayW / displayH;
-        var imgAR_cover = img.naturalWidth / img.naturalHeight;
-        if (imgAR_cover > elAR_cover) {
-          sw = img.naturalHeight * elAR_cover;
-          sx = (img.naturalWidth - sw) / 2;
-        } else {
-          sh = img.naturalWidth / elAR_cover;
-          sy = (img.naturalHeight - sh) / 2;
-        }
-      } else if (fitMode === 'contain') {
-        var elAR_contain = displayW / displayH;
-        var imgAR_contain = img.naturalWidth / img.naturalHeight;
-        if (imgAR_contain > elAR_contain) {
-          dh = displayW / imgAR_contain;
-          dy = (displayH - dh) / 2;
-        } else {
-          dw = displayH * imgAR_contain;
-          dx = (displayW - dw) / 2;
-        }
-      }
-
-      // Create canvas at display size
-      var canvas = document.createElement('canvas');
-      canvas.width = displayW;
-      canvas.height = displayH;
-      var ctx = canvas.getContext('2d');
-
-      // Draw image with filter baked in
-      if (hasFilter) ctx.filter = filterStyle;
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      var ctx = c.getContext('2d');
+      ctx.filter = f;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      img.src = c.toDataURL('image/png');
+      img.style.filter = '';
+    } catch (e) {
       try {
-        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
-      } catch (err) {
-        // CORS-tainted canvas fallback (mirrors old preFilterImages pattern)
         var corsImg = new Image();
         corsImg.crossOrigin = 'anonymous';
-        await new Promise(function (resolve, reject) {
+        await new Promise(function(resolve, reject) {
           corsImg.onload = resolve;
           corsImg.onerror = reject;
           var bust = img.src.indexOf('?') === -1 ? '?' : '&';
           corsImg.src = img.src + bust + '_cors=' + Date.now();
         });
-        ctx.drawImage(corsImg, sx, sy, sw, sh, dx, dy, dw, dh);
+        var c2 = document.createElement('canvas');
+        c2.width = corsImg.naturalWidth;
+        c2.height = corsImg.naturalHeight;
+        var ctx2 = c2.getContext('2d');
+        ctx2.filter = f;
+        ctx2.drawImage(corsImg, 0, 0, c2.width, c2.height);
+        img.src = c2.toDataURL('image/png');
+        img.style.filter = '';
+      } catch (e2) {
+        console.warn('preFilterImages: could not bake filter for', img.src && img.src.substring(0, 60), e2);
       }
-      ctx.filter = 'none';
-
-      // Apply revealMask if present (keeps image only where mask has alpha)
-      if (maskUrl) {
-        var maskImg = new Image();
-        maskImg.crossOrigin = 'anonymous';
-        maskImg.src = maskUrl;
-        await new Promise(function (resolve) {
-          maskImg.addEventListener('load', resolve, { once: true });
-          maskImg.addEventListener('error', resolve, { once: true });
-          setTimeout(resolve, 3000);
-        });
-        if (maskImg.naturalWidth > 0) {
-          ctx.globalCompositeOperation = 'destination-in';
-          ctx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
-          ctx.globalCompositeOperation = 'source-over';
-        }
-      }
-
-      // Preserve rendered box: copy positioning + size + opacity + border radius
-      // from the <img> to the <canvas> element so layout is unchanged.
-      var s = canvas.style;
-      if (img.style.position) s.position = img.style.position;
-      if (img.style.left) s.left = img.style.left;
-      if (img.style.top) s.top = img.style.top;
-      s.width = displayW + 'px';
-      s.height = displayH + 'px';
-      if (img.style.opacity) s.opacity = img.style.opacity;
-      if (img.style.borderRadius) s.borderRadius = img.style.borderRadius;
-      if (img.style.zIndex) s.zIndex = img.style.zIndex;
-      // Transform on <img> itself is rare (flip is usually on .img-wrap),
-      // but preserve it if present so we never regress a styled image.
-      if (img.style.transform) s.transform = img.style.transform;
-      if (img.style.transformOrigin) s.transformOrigin = img.style.transformOrigin;
-
-      // Replace <img> with <canvas> in the capture clone
-      if (img.parentNode) img.parentNode.replaceChild(canvas, img);
-    } catch (e) {
-      // Fail soft: don't nuke the whole export if one image has an edge case
-      console.warn('rasterizeImages: failed for', (img.src || '').substring(0, 60), e && e.message ? e.message : e);
     }
   }
 }
@@ -377,7 +283,7 @@ async function captureCoverImage() {
     }));
   }
 
-  await rasterizeImages(temp);
+  await preFilterImages(temp);
   pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -460,7 +366,7 @@ async function savePDF() {
         }));
       }
 
-      await rasterizeImages(temp);
+      await preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -715,7 +621,7 @@ async function savePDFFold(paperSize) {
         }));
       }
 
-      await rasterizeImages(temp);
+      await preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
