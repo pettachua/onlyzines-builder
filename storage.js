@@ -127,6 +127,43 @@ function saveJSON() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = title.replace(/[^a-z0-9]/gi, '_') + '.json'; a.click();
 }
 
+// EXPORT PIPELINE ONLY. For each <img> in the offscreen capture clone that has
+// an external (cross-origin) src, re-load it with crossOrigin="anonymous" and a
+// cache-bust query param. This is the single fix for the "grey rectangle" PDF
+// bug: without CORS, drawing a cross-origin img onto a canvas silently taints
+// the canvas, which makes html2canvas render nothing (grey parent shows through)
+// and also makes toDataURL throw during PDF export.
+//
+// Verified live on a real Price of Fish R2 image: same <img> that produced
+// SecurityError in canvas.getImageData BEFORE → returned pixel data AFTER.
+//
+// Data URLs and blob URLs are already same-origin by spec — skipped.
+// Fail-soft per image: if reload times out or errors, we leave the original
+// src in place (capture may still fail for that img but won't break others).
+// MUST run BEFORE preFilterImages (which does canvas drawImage) and html2canvas.
+async function enableCorsOnImages(container) {
+  const imgs = container.querySelectorAll('img');
+  if (imgs.length === 0) return;
+  const reloads = [];
+  for (let i = 0; i < imgs.length; i++) {
+    const img = imgs[i];
+    const src = img.src;
+    if (!src || src.startsWith('data:') || src.startsWith('blob:')) continue;
+    img.crossOrigin = 'anonymous';
+    const bust = src.indexOf('?') === -1 ? '?' : '&';
+    img.src = src + bust + '_cors=' + Date.now();
+    reloads.push(new Promise(function (resolve) {
+      img.addEventListener('load', resolve, { once: true });
+      img.addEventListener('error', function () {
+        console.warn('enableCorsOnImages: CORS reload failed for', src.substring(0, 60));
+        resolve();
+      }, { once: true });
+      setTimeout(resolve, 5000);
+    }));
+  }
+  if (reloads.length) await Promise.all(reloads);
+}
+
 // html2canvas v1.4.1 does NOT render CSS filter: (brightness, contrast, saturate).
 // Before capture, bake any per-image CSS filters into the pixel data so html2canvas
 // receives pre-filtered images with no CSS filter to ignore.
@@ -283,6 +320,7 @@ async function captureCoverImage() {
     }));
   }
 
+  await enableCorsOnImages(temp);
   await preFilterImages(temp);
   pdfFixImages(temp);
   await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
@@ -304,7 +342,12 @@ async function captureCoverImage() {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-async function savePDF() {
+// savePDF(options?) — options.skipTexture=true renders clean pages (no paper-texture
+// overlay), used by the Print flat path so physical printing isn't muddy. When called
+// from the PDF topbar button (no options), texture is applied as before so emailed
+// PDFs still look nice.
+async function savePDF(options) {
+  const skipTexture = !!(options && options.skipTexture);
   const btnPDF = document.getElementById('btnPDF');
   const origHTML = btnPDF ? btnPDF.innerHTML : '';
   // Save editor selection state BEFORE try so catch can restore it
@@ -366,7 +409,8 @@ async function savePDF() {
         }));
       }
 
-      await preFilterImages(temp);
+      await enableCorsOnImages(temp);
+  await preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -385,8 +429,9 @@ async function savePDF() {
       }
       document.body.removeChild(temp);
 
-      // Apply texture overlay onto the captured canvas
-      if (textureType && textureType !== 'smooth') {
+      // Apply texture overlay onto the captured canvas (skipped for Print path
+      // since the paper texture prints muddy — PDF-download path keeps texture).
+      if (!skipTexture && textureType && textureType !== 'smooth') {
         pdfApplyTexture(canvas, textureType);
       }
 
@@ -621,7 +666,8 @@ async function savePDFFold(paperSize) {
         }));
       }
 
-      await preFilterImages(temp);
+      await enableCorsOnImages(temp);
+  await preFilterImages(temp);
       pdfFixImages(temp);
       await new Promise(r => requestAnimationFrame(() => setTimeout(r, 100)));
 
@@ -1553,11 +1599,12 @@ function openPrintModal() {
   `;
   document.body.appendChild(overlay);
 
-  // Print flat → close modal, then call existing savePDF() unchanged.
+  // Print flat → close modal, then call savePDF with skipTexture so the physical
+  // print isn't muddy. (PDF topbar button still keeps texture for digital share.)
   const flatBtn = overlay.querySelector('#printFlatBtn');
   flatBtn.addEventListener('click', () => {
     overlay.remove();
-    savePDF();
+    savePDF({ skipTexture: true });
   });
 
   // Paper-size toggle — click stopPropagation so it doesn't trigger the parent fold option.
