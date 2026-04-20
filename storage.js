@@ -192,6 +192,7 @@ async function preFilterImages(container) {
         await new Promise(function(resolve, reject) {
           corsImg.onload = resolve;
           corsImg.onerror = reject;
+          setTimeout(function() { reject(new Error('corsImg timeout')); }, 5000);
           var bust = img.src.indexOf('?') === -1 ? '?' : '&';
           corsImg.src = img.src + bust + '_cors=' + Date.now();
         });
