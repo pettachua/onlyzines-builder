@@ -33,7 +33,9 @@ let drawState = {
   size: 3,
   canvas: null,
   ctx: null,
-  drawing: false
+  drawing: false,
+  undoStack: [],  // per-stroke canvas snapshots within a draw session
+  redoStack: []
 };
 
 let dragState = {

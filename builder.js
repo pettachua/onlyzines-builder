@@ -2010,6 +2010,8 @@ function toggleDraw() {
   } else {
     drawState.active = true;
     state.selected = null;
+    drawState.undoStack = []; // fresh per-session stacks
+    drawState.redoStack = [];
     document.getElementById('drawBar').classList.add('show');
     render();
     // Verify canvas was created and events are bound
@@ -2042,6 +2044,13 @@ function startDrawStroke(e) {
   }
   if (!drawState.canvas) { console.error('[startDrawStroke] No canvas!'); return; }
   drawState.drawing = true;
+  // Snapshot the canvas BEFORE this stroke so drawUndo() can restore it.
+  // Cap stack at 30 to bound memory (~15MB worst case at ~500KB/PNG).
+  try {
+    drawState.undoStack.push(drawState.canvas.toDataURL('image/png'));
+    if (drawState.undoStack.length > 30) drawState.undoStack.shift();
+    drawState.redoStack = []; // new action invalidates any pending redo
+  } catch (e) { /* fail-soft: stroke still works even if snapshot fails */ }
   const rect = drawState.canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
@@ -2070,6 +2079,53 @@ function continueDrawStroke(e) {
 }
 
 function endDrawStroke() { drawState.drawing = false; }
+
+// Per-stroke undo/redo within the draw tool. Each startDrawStroke() snapshots
+// the canvas to undoStack; drawUndo() pops one and paints it back. Independent
+// from the global state.history — that only captures the final committed
+// drawing element at finishDrawing(). Pattern mirrors cutoutUndo/revealUndo.
+function drawUndo() {
+  if (!drawState.active || drawState.undoStack.length === 0) return;
+  // Re-acquire canvas in case render() replaced the DOM element
+  const freshCanvas = document.getElementById('drawCanvas');
+  if (freshCanvas && freshCanvas !== drawState.canvas) {
+    drawState.canvas = freshCanvas;
+    drawState.ctx = freshCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (!drawState.canvas || !drawState.ctx) return;
+  const snap = drawState.undoStack.pop();
+  try {
+    drawState.redoStack.push(drawState.canvas.toDataURL('image/png'));
+    if (drawState.redoStack.length > 30) drawState.redoStack.shift();
+  } catch (e) { /* fail-soft */ }
+  const img = new Image();
+  img.onload = () => {
+    drawState.ctx.clearRect(0, 0, drawState.canvas.width, drawState.canvas.height);
+    drawState.ctx.drawImage(img, 0, 0);
+  };
+  img.src = snap;
+}
+
+function drawRedo() {
+  if (!drawState.active || drawState.redoStack.length === 0) return;
+  const freshCanvas = document.getElementById('drawCanvas');
+  if (freshCanvas && freshCanvas !== drawState.canvas) {
+    drawState.canvas = freshCanvas;
+    drawState.ctx = freshCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (!drawState.canvas || !drawState.ctx) return;
+  const snap = drawState.redoStack.pop();
+  try {
+    drawState.undoStack.push(drawState.canvas.toDataURL('image/png'));
+    if (drawState.undoStack.length > 30) drawState.undoStack.shift();
+  } catch (e) { /* fail-soft */ }
+  const img = new Image();
+  img.onload = () => {
+    drawState.ctx.clearRect(0, 0, drawState.canvas.width, drawState.canvas.height);
+    drawState.ctx.drawImage(img, 0, 0);
+  };
+  img.src = snap;
+}
 
 function finishDrawing() {
   if (drawState.canvas && drawState.ctx) {
@@ -2140,6 +2196,8 @@ function finishDrawing() {
     }
   }
   drawState.active = false;
+  drawState.undoStack = []; // clear per-session stacks on commit
+  drawState.redoStack = [];
   document.getElementById('drawBar').classList.remove('show');
   _needsPagesPanelUpdate = true;
   render();
@@ -2147,6 +2205,8 @@ function finishDrawing() {
 
 function cancelDrawing() {
   drawState.active = false;
+  drawState.undoStack = []; // clear per-session stacks on cancel
+  drawState.redoStack = [];
   document.getElementById('drawBar').classList.remove('show');
   render();
 }
@@ -3088,17 +3148,19 @@ document.addEventListener('keydown', e => {
     return;
   }
   
-  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { 
-    e.preventDefault(); 
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
     if (cutoutOpen) cutoutUndo();
     else if (revealState.active || revealState.quickMode) revealUndo();
-    else undo(); 
-    return; 
+    else if (drawState.active) drawUndo();
+    else undo();
+    return;
   }
-  if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { 
-    e.preventDefault(); 
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+    e.preventDefault();
     if (cutoutOpen) cutoutRedo();
     else if (revealState.active || revealState.quickMode) revealRedo();
+    else if (drawState.active) drawRedo();
     else redo();
     return; 
   }
