@@ -79,6 +79,10 @@ const builder = {
       }
       if (!skipRender) {
         // Don't call saveHistory here to avoid triggering autosave during load
+        // Force pages-panel rebuild: render() gates the panel update on _needsPagesPanelUpdate,
+        // and the prior init() render already cleared it. Without this, the saved zine's pages
+        // are absent from the left sidebar until the next state-mutating action.
+        _needsPagesPanelUpdate = true;
         render();
       }
       return true;
